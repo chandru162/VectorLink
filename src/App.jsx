@@ -29,7 +29,7 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
-  Tooltip // Added Tooltip for better UX on icons
+  Tooltip
 } from '@mui/material';
 import {
   PlayArrow as PlayIcon,
@@ -44,13 +44,15 @@ import {
   Upload as UploadIcon,
   Settings as SettingsIcon,
   ContentCopy as CopyIcon,
-  ChevronRight as ExpandIcon, // Changed from ExpandMoreIcon for a simpler look
+  ChevronRight as ExpandIcon,
+  Refresh as ClearIcon, // Added for Clear Response
+  AutoFixHigh as FormatIcon, // Added for Format JSON
 } from '@mui/icons-material';
 
-// Import SyntaxHighlighter and styles
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { darcula } from 'react-syntax-highlighter/dist/esm/styles/hljs'; // Dark theme
-import { vs } from 'react-syntax-highlighter/dist/esm/styles/hljs';     // Light theme
+import { darcula } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+import { vs } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+
 
 const App = () => {
   // --- State for Settings ---
@@ -64,6 +66,7 @@ const App = () => {
         autoFormatResponseJson: true,
         maxHistoryItems: 50,
         enableCorsProxy: false,
+        corsProxyUrl: '',
         requestTimeout: 10000,
         showRequestTime: true,
         showResponseStatus: true,
@@ -77,8 +80,12 @@ const App = () => {
         theme: 'light',
         defaultAuthType: 'none',
         defaultBasicAuthUsername: '',
+        fetchTimeout: 10000,
         defaultBasicAuthPassword: '',
-        highlightSyntaxInResponse: true,
+        highlightSyntaxInResponse: false,
+        jsonIndentSpaces: 2,
+        defaultEnvironment: 'No Environment',
+        environments: [{ id: crypto.randomUUID(), name: 'No Environment', variables: [] }],
         ...JSON.parse(storedSettings)
       } : {
         defaultUrl: 'https://official-joke-api.appspot.com/random_joke',
@@ -87,6 +94,7 @@ const App = () => {
         autoFormatResponseJson: true,
         maxHistoryItems: 50,
         enableCorsProxy: false,
+        corsProxyUrl: '',
         requestTimeout: 10000,
         showRequestTime: true,
         showResponseStatus: true,
@@ -100,8 +108,12 @@ const App = () => {
         theme: 'light',
         defaultAuthType: 'none',
         defaultBasicAuthUsername: '',
+        fetchTimeout: 10000,
         defaultBasicAuthPassword: '',
-        highlightSyntaxInResponse: true,
+        highlightSyntaxInResponse: false,
+        jsonIndentSpaces: 2,
+        defaultEnvironment: 'No Environment',
+        environments: [{ id: crypto.randomUUID(), name: 'No Environment', variables: [] }],
       };
     } catch (e) {
       console.error("Failed to load settings from localStorage, using defaults:", e);
@@ -112,6 +124,7 @@ const App = () => {
         autoFormatResponseJson: true,
         maxHistoryItems: 50,
         enableCorsProxy: false,
+        corsProxyUrl: '',
         requestTimeout: 10000,
         showRequestTime: true,
         showResponseStatus: true,
@@ -125,8 +138,12 @@ const App = () => {
         theme: 'light',
         defaultAuthType: 'none',
         defaultBasicAuthUsername: '',
+        fetchTimeout: 10000,
         defaultBasicAuthPassword: '',
-        highlightSyntaxInResponse: true,
+        highlightSyntaxInResponse: false,
+        jsonIndentSpaces: 2,
+        defaultEnvironment: 'No Environment',
+        environments: [{ id: crypto.randomUUID(), name: 'No Environment', variables: [] }],
       };
     }
   });
@@ -141,15 +158,20 @@ const App = () => {
   const [basicAuthUsername, setBasicAuthUsername] = useState(settings.defaultBasicAuthUsername);
   const [basicAuthPassword, setBasicAuthPassword] = useState(settings.defaultBasicAuthPassword);
   const [headers, setHeaders] = useState(settings.defaultHeaders.length > 0 ? settings.defaultHeaders.map(h => ({ ...h, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+  const [cookies, setCookies] = useState([{ id: crypto.randomUUID(), key: '', value: '' }]);
   const [requestBody, setRequestBody] = useState('');
   const [bodyType, setBodyType] = useState(settings.defaultBodyType);
   const [formEncodedBody, setFormEncodedBody] = useState([{ id: crypto.randomUUID(), key: '', value: '' }]);
+  // Removed: const [preRequestScript, setPreRequestScript] = useState('// Your pre-request script here');
+  // Removed: const [responseTests, setResponseTests] = useState('// Your response tests here');
   const [activeRequestTab, setActiveRequestTab] = useState(0);
 
   // --- State for Response ---
   const [responseStatus, setResponseStatus] = useState(null);
+  const [responseStatusText, setResponseStatusText] = useState('');
   const [responseHeaders, setResponseHeaders] = useState({});
   const [responseBody, setResponseBody] = useState('');
+  const [responseCookies, setResponseCookies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [requestTime, setRequestTime] = useState(null);
@@ -166,7 +188,7 @@ const App = () => {
       return [];
     }
   });
-  const [expandedCollection, setExpandedCollection] = useState(null); // State for expanded collection
+  const [expandedCollection, setExpandedCollection] = useState(null);
 
   const [history, setHistory] = useState(() => {
     try {
@@ -179,6 +201,7 @@ const App = () => {
     }
   });
   const [activeSidebarTab, setActiveSidebarTab] = useState(0);
+  const [selectedEnvironment, setSelectedEnvironment] = useState(settings.defaultEnvironment);
 
   // --- State for Dialogs ---
   const [isSaveRequestDialogOpen, setIsSaveRequestDialogOpen] = useState(false);
@@ -198,6 +221,11 @@ const App = () => {
     message: '',
     onConfirm: () => { },
   });
+
+  // State for Import Conflict Resolution Dialog
+  const [isImportConflictDialogOpen, setIsImportConflictDialogOpen] = useState(false);
+  const [importConflictResolution, setImportConflictResolution] = useState('merge'); // 'merge' or 'overwrite'
+  const [importDataPending, setImportDataPending] = useState(null); // Stores data waiting for conflict resolution
 
   const fileInputRef = useRef(null);
 
@@ -236,7 +264,7 @@ const App = () => {
         MuiButton: {
           styleOverrides: {
             root: {
-              borderRadius: 4, // Slightly less rounded for a simpler look
+              borderRadius: 4,
               textTransform: 'none',
               fontWeight: 500,
             },
@@ -269,7 +297,6 @@ const App = () => {
             },
           },
         },
-        // Removed MuiAccordion styles as Accordion is no longer used for collections
         MuiListItem: {
           styleOverrides: {
             root: {
@@ -310,7 +337,7 @@ const App = () => {
   }, [history, settings.maxHistoryItems]);
 
 
-  // --- Helper Functions for Key-Value Pairs (Headers, Query Params, Form Encoded) ---
+  // --- Helper Functions for Key-Value Pairs (Headers, Query Params, Form Encoded, Cookies) ---
   const addKeyValuePair = useCallback((setter, currentItems) => {
     setter([...currentItems, { id: crypto.randomUUID(), key: '', value: '' }]);
   }, []);
@@ -330,8 +357,10 @@ const App = () => {
     setLoading(true);
     setError(null);
     setResponseStatus(null);
+    setResponseStatusText('');
     setResponseHeaders({});
     setResponseBody('');
+    setResponseCookies([]);
     setRequestTime(null);
     setCopyFeedback('');
 
@@ -339,12 +368,32 @@ const App = () => {
 
     try {
       let requestUrl = url;
+      // Apply environment variables to URL
+      const activeEnvironment = settings.environments.find(env => env.name === selectedEnvironment);
+      if (activeEnvironment) {
+        activeEnvironment.variables.forEach(variable => {
+          if (variable.key && variable.value) {
+            requestUrl = requestUrl.replace(new RegExp(`{{${variable.key}}}`, 'g'), variable.value);
+          }
+        });
+      }
+
       const validQueryParams = queryParams.filter(p => p.key && p.value);
       if (validQueryParams.length > 0) {
         const queryString = new URLSearchParams(
           validQueryParams.map(p => [p.key, p.value])
         ).toString();
-        requestUrl = `${url.split('?')[0]}?${queryString}`;
+        requestUrl = `${requestUrl.split('?')[0]}?${queryString}`;
+      }
+
+      // CORS Proxy Logic
+      let finalUrl = requestUrl;
+      if (settings.enableCorsProxy && settings.corsProxyUrl) {
+        const proxyBase = settings.corsProxyUrl.endsWith('/') || settings.corsProxyUrl.includes('?')
+          ? settings.corsProxyUrl
+          : `${settings.corsProxyUrl}/`;
+        finalUrl = `${proxyBase}${encodeURIComponent(requestUrl)}`;
+        console.log("Using CORS proxy. Final URL:", finalUrl);
       }
 
       const options = {
@@ -365,11 +414,18 @@ const App = () => {
         }
       });
 
+      // Add Cookies to Headers
+      const validCookies = cookies.filter(c => c.key && c.value);
+      if (validCookies.length > 0) {
+        const cookieString = validCookies.map(c => `${c.key}=${c.value}`).join('; ');
+        options.headers['Cookie'] = cookieString;
+      }
+
       if (['POST', 'PUT', 'PATCH'].includes(method)) {
         if (bodyType === 'raw-json') {
           try {
             const parsedBody = JSON.parse(requestBody);
-            options.body = JSON.stringify(parsedBody, null, settings.autoFormatRequestJson ? 2 : 0);
+            options.body = JSON.stringify(parsedBody, null, settings.autoFormatRequestJson ? settings.jsonIndentSpaces : 0);
             options.headers['Content-Type'] = 'application/json';
           } catch (e) {
             if (settings.enableRequestBodyValidation) {
@@ -397,13 +453,14 @@ const App = () => {
       const id = setTimeout(() => controller.abort(), settings.requestTimeout);
       options.signal = controller.signal;
 
-      const response = await fetch(requestUrl, options);
+      const response = await fetch(finalUrl, options);
       clearTimeout(id);
 
       const endTime = performance.now();
       setRequestTime((endTime - startTime).toFixed(2));
 
       setResponseStatus(response.status);
+      setResponseStatusText(response.statusText);
 
       const resHeaders = {};
       response.headers.forEach((value, key) => {
@@ -411,11 +468,24 @@ const App = () => {
       });
       setResponseHeaders(resHeaders);
 
+      // Parse Set-Cookie header for response cookies
+      const setCookieHeader = response.headers.get('set-cookie');
+      if (setCookieHeader) {
+        const parsedCookies = setCookieHeader.split(/,\s*(?=[^;]*=)/).map(cookiePart => { // Split by comma not inside attribute
+          const [key, ...valueParts] = cookiePart.trim().split('=');
+          const value = valueParts.join('=').split(';')[0]; // Take value up to first semicolon for attributes
+          return { key: decodeURIComponent(key || ''), value: decodeURIComponent(value || '') };
+        }).filter(c => c.key); // Filter out empty keys
+        setResponseCookies(parsedCookies);
+      } else {
+        setResponseCookies([]);
+      }
+
       const contentType = response.headers.get('content-type');
       let responseBodyText = '';
       if (contentType && contentType.includes('application/json')) {
         const json = await response.json();
-        responseBodyText = JSON.stringify(json, null, settings.autoFormatResponseJson ? 2 : 0);
+        responseBodyText = JSON.stringify(json, null, settings.autoFormatResponseJson ? settings.jsonIndentSpaces : 0);
       } else {
         responseBodyText = await response.text();
       }
@@ -424,8 +494,8 @@ const App = () => {
       const newHistoryItem = {
         id: crypto.randomUUID(),
         timestamp: new Date().toISOString(),
-        requestDetails: { url, method, queryParams, authType, authToken, basicAuthUsername, basicAuthPassword, headers, requestBody, bodyType, formEncodedBody },
-        responseDetails: { status: response.status, headers: resHeaders, body: responseBodyText },
+        requestDetails: { url, method, queryParams, authType, authToken, basicAuthUsername, basicAuthPassword, headers, cookies, requestBody, bodyType, formEncodedBody }, // Removed preRequestScript, responseTests
+        responseDetails: { status: response.status, statusText: response.statusText, headers: resHeaders, body: responseBodyText, cookies: setCookies },
       };
       setHistory(prevHistory => [newHistoryItem, ...prevHistory]);
 
@@ -433,10 +503,12 @@ const App = () => {
       if (err.name === 'AbortError') {
         setError(`Error: Request timed out after ${settings.requestTimeout}ms.`);
       } else {
-        setError(`Error: ${err.message}. Please check the URL, network connection, or CORS issues.`);
+        setError(`Error: ${err.message}`);
       }
       setResponseStatus('Error');
+      setResponseStatusText('Request Failed');
       setResponseBody('');
+      setResponseCookies([]);
     } finally {
       setLoading(false);
     }
@@ -445,12 +517,12 @@ const App = () => {
   // --- Request/Response Utilities ---
   const formatJsonBody = useCallback(() => {
     try {
-      setRequestBody(JSON.stringify(JSON.parse(requestBody), null, 2));
+      setRequestBody(JSON.stringify(JSON.parse(requestBody), null, settings.jsonIndentSpaces));
       setError(null);
     } catch (e) {
       setError(`${e}`);
     }
-  }, [requestBody]);
+  }, [requestBody, settings.jsonIndentSpaces]);
 
   const clearAllFields = useCallback(() => {
     setUrl(settings.defaultUrl);
@@ -461,16 +533,32 @@ const App = () => {
     setBasicAuthUsername(settings.defaultBasicAuthUsername);
     setBasicAuthPassword(settings.defaultBasicAuthPassword);
     setHeaders(settings.defaultHeaders.length > 0 ? settings.defaultHeaders.map(h => ({ ...h, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setCookies([{ id: crypto.randomUUID(), key: '', value: '' }]);
     setRequestBody('');
     setBodyType(settings.defaultBodyType);
     setFormEncodedBody([{ id: crypto.randomUUID(), key: '', value: '' }]);
+    // Removed: setPreRequestScript('// Your pre-request script here');
+    // Removed: setResponseTests('// Your response tests here');
     setResponseStatus(null);
+    setResponseStatusText('');
     setResponseHeaders({});
     setResponseBody('');
+    setResponseCookies([]);
     setError(null);
     setRequestTime(null);
     setCopyFeedback('');
   }, [settings]);
+
+  const clearResponseBody = useCallback(() => {
+    setResponseStatus(null);
+    setResponseStatusText('');
+    setResponseHeaders({});
+    setResponseBody('');
+    setResponseCookies([]);
+    setError(null);
+    setRequestTime(null);
+    setCopyFeedback('');
+  }, []);
 
   const saveResponseBodyAsJson = useCallback(() => {
     if (!responseBody) {
@@ -512,6 +600,47 @@ const App = () => {
     setTimeout(() => setCopyFeedback(''), 2000);
   }, [responseBody]);
 
+  const copyResponseHeaders = useCallback(() => {
+    if (Object.keys(responseHeaders).length === 0) {
+      setCopyFeedback('No headers to copy!');
+      return;
+    }
+    const headersText = Object.entries(responseHeaders).map(([key, value]) => `${key}: ${value}`).join('\n');
+    try {
+      navigator.clipboard.writeText(headersText)
+        .then(() => setCopyFeedback('Copied Headers!'))
+        .catch((err) => {
+          setCopyFeedback('Failed to copy headers.');
+          console.error('Failed to copy response headers:', err);
+        });
+    } catch (err) {
+      setCopyFeedback('Failed to copy headers.');
+      console.error('Failed to copy response headers:', err);
+    }
+    setTimeout(() => setCopyFeedback(''), 2000);
+  }, [responseHeaders]);
+
+  const copyResponseCookies = useCallback(() => {
+    if (responseCookies.length === 0) {
+      setCopyFeedback('No cookies to copy!');
+      return;
+    }
+    const cookiesText = responseCookies.map(c => `${c.key}=${c.value}`).join('; ');
+    try {
+      navigator.clipboard.writeText(cookiesText)
+        .then(() => setCopyFeedback('Copied Cookies!'))
+        .catch((err) => {
+          setCopyFeedback('Failed to copy cookies.');
+          console.error('Failed to copy response cookies:', err);
+        });
+    } catch (err) {
+      setCopyFeedback('Failed to copy cookies.');
+      console.error('Failed to copy response cookies:', err);
+    }
+    setTimeout(() => setCopyFeedback(''), 2000);
+  }, [responseCookies]);
+
+
   // --- Collection Management ---
   const openSaveRequestDialog = useCallback(() => {
     setNewRequestName('');
@@ -536,9 +665,12 @@ const App = () => {
       basicAuthUsername,
       basicAuthPassword,
       headers: headers.map(h => ({ ...h })),
+      cookies: cookies.map(c => ({ ...c })),
       requestBody,
       bodyType,
       formEncodedBody: formEncodedBody.map(f => ({ ...f })),
+      // Removed: preRequestScript,
+      // Removed: responseTests,
     };
 
     setCollections(prevCollections =>
@@ -550,7 +682,7 @@ const App = () => {
     );
     setIsSaveRequestDialogOpen(false);
     setError(null);
-  }, [newRequestName, selectedCollectionId, url, method, queryParams, authType, authToken, basicAuthUsername, basicAuthPassword, headers, requestBody, bodyType, formEncodedBody]);
+  }, [newRequestName, selectedCollectionId, url, method, queryParams, authType, authToken, basicAuthUsername, basicAuthPassword, headers, cookies, requestBody, bodyType, formEncodedBody]); // Removed preRequestScript, responseTests
 
   const handleNewCollection = useCallback(() => {
     if (!newCollectionName.trim()) {
@@ -575,15 +707,21 @@ const App = () => {
     setBasicAuthUsername(request.basicAuthUsername || '');
     setBasicAuthPassword(request.basicAuthPassword || '');
     setHeaders(request.headers ? request.headers.map(h => ({ ...h, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setCookies(request.cookies ? request.cookies.map(c => ({ ...c, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
     setRequestBody(request.requestBody || '');
     setBodyType(request.bodyType || 'none');
     setFormEncodedBody(request.formEncodedBody ? request.formEncodedBody.map(f => ({ ...f, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    // Removed: setPreRequestScript(request.preRequestScript || '// Your pre-request script here');
+    // Removed: setResponseTests(request.responseTests || '// Your response tests here');
     setResponseStatus(null);
+    setResponseStatusText('');
     setResponseHeaders({});
     setResponseBody('');
+    setResponseCookies([]);
     setError(null);
     setRequestTime(null);
     setCopyFeedback('');
+    setActiveRequestTab(0);
   }, []);
 
   const loadRequestFromHistory = useCallback((historyItem) => {
@@ -596,17 +734,23 @@ const App = () => {
     setBasicAuthUsername(request.basicAuthUsername || '');
     setBasicAuthPassword(request.basicAuthPassword || '');
     setHeaders(request.headers ? request.headers.map(h => ({ ...h, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setCookies(request.cookies ? request.cookies.map(c => ({ ...c, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
     setRequestBody(request.requestBody || '');
     setBodyType(request.bodyType || 'none');
     setFormEncodedBody(request.formEncodedBody ? request.formEncodedBody.map(f => ({ ...f, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    // Removed: setPreRequestScript(request.preRequestScript || '// Your pre-request script here');
+    // Removed: setResponseTests(request.responseTests || '// Your response tests here');
 
     setResponseStatus(historyItem.responseDetails.status);
+    setResponseStatusText(historyItem.responseDetails.statusText || '');
     setResponseHeaders(historyItem.responseDetails.headers);
     setResponseBody(historyItem.responseDetails.body);
+    setResponseCookies(historyItem.responseDetails.cookies || []);
     setError(null);
     setRequestTime(null);
     setCopyFeedback('');
     setActiveResponseTab(0);
+    setActiveRequestTab(0);
   }, []);
 
   const handleDeleteRequestFromCollection = useCallback((collectionId, requestId, requestName) => {
@@ -634,7 +778,7 @@ const App = () => {
       onConfirm: () => {
         setCollections(prevCollections => prevCollections.filter(col => col.id !== collectionId));
         setIsConfirmDialogOpen(false);
-        setExpandedCollection(null); // Close any expanded collection
+        setExpandedCollection(null);
       },
     });
     setIsConfirmDialogOpen(true);
@@ -670,24 +814,25 @@ const App = () => {
       },
     });
     setIsConfirmDialogOpen(true);
-  }, []);
+  }, [history.length]);
 
 
   // --- Export/Import Functionality (Collections Only) ---
   const exportData = useCallback(() => {
     const dataToExport = {
       collections,
+      // settings: { ...settings, defaultAuthToken: '', defaultBasicAuthPassword: '' } // Exclude sensitive info from export
     };
     const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `api_collections_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `Collections_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [collections]);
+  }, [collections, settings]);
 
   const importData = useCallback((event) => {
     const file = event.target.files[0];
@@ -698,42 +843,107 @@ const App = () => {
     reader.onload = (e) => {
       try {
         const importedData = JSON.parse(e.target.result);
-        if (importedData.collections && Array.isArray(importedData.collections)) {
-          const validatedCollections = importedData.collections.map(col => ({
-            id: col.id || crypto.randomUUID(),
-            name: col.name || 'Unnamed Collection',
-            requests: Array.isArray(col.requests) ? col.requests.map(req => ({
-              id: req.id || crypto.randomUUID(),
-              name: req.name || 'Unnamed Request',
-              url: req.url || '',
-              method: req.method || 'GET',
-              queryParams: Array.isArray(req.queryParams) ? req.queryParams.map(p => ({ ...p, id: p.id || crypto.randomUUID() })) : [],
-              authType: req.authType || 'none',
-              authToken: req.authToken || '',
-              basicAuthUsername: req.basicAuthUsername || '',
-              basicAuthPassword: req.basicAuthPassword || '',
-              headers: Array.isArray(req.headers) ? req.headers.map(h => ({ ...h, id: h.id || crypto.randomUUID() })) : [],
-              requestBody: req.requestBody || '',
-              bodyType: req.bodyType || 'none',
-              formEncodedBody: Array.isArray(req.formEncodedBody) ? req.formEncodedBody.map(f => ({ ...f, id: f.id || crypto.randomUUID() })) : [],
-            })) : [],
-          }));
-          setCollections(validatedCollections);
-          setError(null);
-          alert('Collections imported successfully!');
+
+        // Validate collections before prompting for conflict resolution
+        const validatedCollections = importedData.collections && Array.isArray(importedData.collections)
+          ? importedData.collections.map(col => ({
+              id: col.id || crypto.randomUUID(),
+              name: col.name || 'Unnamed Collection',
+              requests: Array.isArray(col.requests) ? col.requests.map(req => ({
+                id: req.id || crypto.randomUUID(),
+                name: req.name || 'Unnamed Request',
+                url: req.url || '',
+                method: req.method || 'GET',
+                queryParams: Array.isArray(req.queryParams) ? req.queryParams.map(p => ({ ...p, id: p.id || crypto.randomUUID() })) : [],
+                authType: req.authType || 'none',
+                authToken: req.authToken || '',
+                basicAuthUsername: req.basicAuthUsername || '',
+                basicAuthPassword: req.basicAuthPassword || '',
+                headers: Array.isArray(req.headers) ? req.headers.map(h => ({ ...h, id: h.id || crypto.randomUUID() })) : [],
+                cookies: Array.isArray(req.cookies) ? req.cookies.map(c => ({ ...c, id: c.id || crypto.randomUUID() })) : [],
+                requestBody: req.requestBody || '',
+                bodyType: req.bodyType || 'none',
+                formEncodedBody: Array.isArray(req.formEncodedBody) ? req.formEncodedBody.map(f => ({ ...f, id: f.id || crypto.randomUUID() })) : [],
+              })) : [],
+            }))
+          : [];
+
+        // Store pending data and open conflict resolution dialog if collections exist
+        if (validatedCollections.length > 0) {
+          setImportDataPending({
+            collections: validatedCollections,
+            settings: importedData.settings,
+          });
+          setIsImportConflictDialogOpen(true);
         } else {
-          setError('Imported file does not contain collections data in the expected format. Please ensure it\'s a valid export file.');
-          return;
+          // If no collections to import, just handle settings
+          if (importedData.settings && typeof importedData.settings === 'object') {
+              setSettings(prevSettings => ({
+                  ...prevSettings,
+                  ...importedData.settings,
+                  defaultAuthToken: importedData.settings.defaultAuthToken || prevSettings.defaultAuthToken,
+                  defaultBasicAuthPassword: importedData.settings.defaultBasicAuthPassword || prevSettings.defaultBasicAuthPassword,
+              }));
+              alert('Settings imported successfully! ⚙️');
+          } else {
+              setError('Invalid JSON file or unexpected format. No collections or settings found.');
+          }
         }
       } catch (err) {
-        setError('Invalid JSON file or unexpected format. Please ensure it\'s a valid collections export file.',err);
+        setError('Invalid JSON file or unexpected format. Please ensure it\'s a valid collections export file.', err);
         console.error("Import error:", err);
       } finally {
-        event.target.value = null;
+        event.target.value = null; // Clear file input
       }
     };
     reader.readAsText(file);
   }, []);
+
+  const handleImportCollections = useCallback(() => {
+    if (!importDataPending) return;
+
+    const { collections: importedCollections, settings: importedSettings } = importDataPending;
+
+    if (importConflictResolution === 'overwrite') {
+      setCollections(importedCollections);
+      alert('Collections overwritten successfully! ✨');
+    } else { // 'merge'
+      const mergedCollections = [...collections];
+      importedCollections.forEach(importedCol => {
+        const existingColIndex = mergedCollections.findIndex(col => col.name === importedCol.name);
+        if (existingColIndex > -1) {
+          // Merge requests within existing collection
+          const existingRequests = new Set(mergedCollections[existingColIndex].requests.map(req => req.name));
+          importedCol.requests.forEach(importedReq => {
+            // Only add if request name doesn't already exist in the collection
+            if (!existingRequests.has(importedReq.name)) {
+              mergedCollections[existingColIndex].requests.push(importedReq);
+            }
+          });
+        } else {
+          // Add new collection
+          mergedCollections.push(importedCol);
+        }
+      });
+      setCollections(mergedCollections);
+      alert('Collections merged successfully! 🤝');
+    }
+
+    if (importedSettings && typeof importedSettings === 'object') {
+        setSettings(prevSettings => ({
+            ...prevSettings,
+            ...importedSettings,
+            defaultAuthToken: importedSettings.defaultAuthToken || prevSettings.defaultAuthToken,
+            defaultBasicAuthPassword: importedSettings.defaultBasicAuthPassword || prevSettings.defaultBasicAuthPassword,
+        }));
+        alert('Settings imported successfully! ⚙️');
+    }
+
+    setIsImportConflictDialogOpen(false);
+    setImportDataPending(null);
+    setError(null);
+  }, [importDataPending, importConflictResolution, collections]);
+
 
   // --- Settings Handlers ---
   const handleSettingChange = useCallback((key, value) => {
@@ -762,6 +972,80 @@ const App = () => {
       defaultHeaders: prev.defaultHeaders.filter(header => header.id !== id)
     }));
   }, []);
+
+    // Environment Handlers
+    const handleAddEnvironment = useCallback(() => {
+      setSettings(prev => ({
+          ...prev,
+          environments: [...prev.environments, { id: crypto.randomUUID(), name: `New Env ${prev.environments.length}`, variables: [{ id: crypto.randomUUID(), key: '', value: '' }] }]
+      }));
+  }, []);
+
+  const handleUpdateEnvironmentName = useCallback((envId, newName) => {
+      setSettings(prev => ({
+          ...prev,
+          environments: prev.environments.map(env =>
+              env.id === envId ? { ...env, name: newName } : env
+          )
+      }));
+  }, []);
+
+  const handleDeleteEnvironment = useCallback((envId, envName) => {
+      if (envName === 'No Environment') {
+          alert("Cannot delete 'No Environment'.");
+          return;
+      }
+      setConfirmDialogDetails({
+          title: `Delete Environment "${envName}"?`,
+          message: 'Are you sure you want to delete this environment and all its variables? This action cannot be undone.',
+          onConfirm: () => {
+              setSettings(prev => {
+                  const updatedEnvs = prev.environments.filter(env => env.id !== envId);
+                  if (selectedEnvironment === envName) {
+                      setSelectedEnvironment('No Environment');
+                  }
+                  return { ...prev, environments: updatedEnvs };
+              });
+              setIsConfirmDialogOpen(false);
+          },
+      });
+      setIsConfirmDialogOpen(true);
+  }, [selectedEnvironment]);
+
+  const handleAddEnvironmentVariable = useCallback((envId) => {
+      setSettings(prev => ({
+          ...prev,
+          environments: prev.environments.map(env =>
+              env.id === envId ? { ...env, variables: [...env.variables, { id: crypto.randomUUID(), key: '', value: '' }] } : env
+          )
+      }));
+  }, []);
+
+  const handleUpdateEnvironmentVariable = useCallback((envId, varId, field, value) => {
+      setSettings(prev => ({
+          ...prev,
+          environments: prev.environments.map(env =>
+              env.id === envId ? {
+                  ...env,
+                  variables: env.variables.map(variable =>
+                      variable.id === varId ? { ...variable, [field]: value } : variable
+                  )
+              } : env
+          )
+      }));
+  }, []);
+
+  const handleRemoveEnvironmentVariable = useCallback((envId, varId) => {
+      setSettings(prev => ({
+          ...prev,
+          environments: prev.environments.filter(env =>
+              env.id === envId ? { ...env, variables: env.variables.filter(variable => variable.id !== varId) } : true
+          ).map(env =>
+            env.id === envId ? { ...env, variables: env.variables.filter(variable => variable.id !== varId) } : env
+          )
+      }));
+  }, []);
+
 
   // --- Syntax Highlighting Logic for Response Panel ---
   const getLanguage = (body) => {
@@ -814,28 +1098,29 @@ const App = () => {
         <Box
           sx={{
             width: '100%',
-            height: '100vh',
+            height: { xs: 'auto', md: '100vh' },
             display: 'flex',
             flexDirection: { xs: 'column', md: 'row' },
-            gap: 1, // Reduced gap
-            bgcolor: 'background.default', // Use default background for cleaner look
+            gap: 1,
+            bgcolor: 'background.default',
           }}
         >
           {/* 1. Workspace Panel (Sidebar) */}
           <Box
             sx={{
-              width: { xs: '100%', md: '18%' }, // Fixed width on md+, full width on xs
+              width: { xs: '100%', sm: '100%', md: '100%' },
+              maxWidth: { md: '300px' },
               flexShrink: 0,
               display: 'flex',
               flexDirection: 'column',
-              gap: 1, // Reduced gap
-              bgcolor: 'background.paper', // Slightly different background for distinction
+              gap: 1,
+              bgcolor: 'background.paper',
               borderRight: { xs: 0, md: '1px solid' },
               borderBottom: { xs: '1px solid', md: 0 },
               borderColor: 'divider',
-              p: 1.5, // Reduced padding
+              p: 1.5,
               height: { xs: 'auto', md: '100%' },
-              minHeight: { xs: '30vh', md: 'auto' }, // Min height for mobile
+              minHeight: { xs: '25vh', sm: '30vh', md: 'auto' },
             }}
           >
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
@@ -848,6 +1133,21 @@ const App = () => {
                 </IconButton>
               </Tooltip>
             </Box>
+
+            {/* Environment Selector */}
+            <FormControl fullWidth size="small" sx={{ my: 1 }}>
+              <InputLabel id="environment-select-label">Environment</InputLabel>
+              <Select
+                labelId="environment-select-label"
+                value={selectedEnvironment}
+                label="Environment"
+                onChange={(e) => setSelectedEnvironment(e.target.value)}
+              >
+                {settings.environments.map(env => (
+                  <MenuItem key={env.id} value={env.name}>{env.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
 
             {/* Sidebar Tabs */}
             <Tabs
@@ -875,7 +1175,7 @@ const App = () => {
                 </Button>
                 {collections.length === 0 && (
                   <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: 1, textAlign: 'center' }}>
-                    No collections yet.
+                    No collections yet. 📂
                   </Typography>
                 )}
                 <List dense disablePadding>
@@ -918,7 +1218,7 @@ const App = () => {
                             <ListItem>
                               <ListItemText
                                 primary={<Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                                  No requests.
+                                  No requests. ✨
                                 </Typography>}
                               />
                             </ListItem>
@@ -979,17 +1279,17 @@ const App = () => {
               <Box sx={{ flexGrow: 1, overflowY: 'auto', pr: 0.5, py: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                 <Button
                   variant="outlined"
-                  startIcon={<TrashIcon />}
+                  // startIcon={<TrashIcon />}
                   onClick={handleClearHistory}
                   color="error"
                   size="small"
                   sx={{ mb: 1 }}
                 >
-                  Clear History
+                  🗑️ Clear History
                 </Button>
                 {history.length === 0 && (
                   <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: 1, textAlign: 'center' }}>
-                    No history yet.
+                    No history yet. ⏳
                   </Typography>
                 )}
                 <List dense disablePadding>
@@ -1029,8 +1329,9 @@ const App = () => {
                               item.responseDetails.status >= 500 ? theme.palette.error.main :
                               theme.palette.text.secondary
                             }}>
-                              {item.responseDetails.status || 'N/A'}
-                            </Box> • {new Date(item.timestamp).toLocaleString()}
+                              {item.responseDetails.status || 'N/A'} {item.responseDetails.statusText}
+                            </Box>
+                            <Box> • {new Date(item.timestamp).toLocaleString()}</Box>
                           </Typography>
                         }
                         slotProps={{ primary: { sx: { mb: 0 } }}}
@@ -1043,21 +1344,20 @@ const App = () => {
           </Box>
 
           {/* 2. Request Panel */}
-          <Box
-            sx={{
-              flexGrow: 2, // Allow it to take more space
-              display: 'flex',
-              flexDirection: 'column',
-              minHeight: { xs: '50vh', md: 'auto' },
-              borderRight: { xs: 0, md: '1px solid' },
-              borderBottom: { xs: '1px solid', md: 0 },
-              borderColor: 'divider',
-              p: 1.5, // Reduced padding
-            }}
+          <Box sx={{ flexGrow: 2,
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: { xs: '50vh', md: 'auto' },
+            borderRight: { xs: 0, md: '1px solid' },
+            borderBottom: { xs: '1px solid', md: 0 },
+            borderColor: 'divider',
+            p: 1.5,
+            width: { xs: '100%', md: '40%' }
+          }}
           >
             {/* URL & Method Input */}
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1, alignItems: { xs: 'stretch', sm: 'center' }, mb: 1 }}>
-              <FormControl sx={{ minWidth: 110 }}>
+              <FormControl sx={{ minWidth: { xs: '100%', sm: 110 } }}>
                 <Select
                   value={method}
                   onChange={(e) => setMethod(e.target.value)}
@@ -1087,26 +1387,17 @@ const App = () => {
                 disabled={loading}
                 sx={{
                   minWidth: { xs: '100%', sm: 'auto' },
-                  height: '38px', // Match TextField height for size="small"
+                  height: '38px',
                   width: { xs: 'auto', sm: '120px' }
                 }}
               >
                 {loading ? <CircularProgress size={20} color="inherit" /> : 'Send'}
               </Button>
-              <Tooltip title="Clear All Fields">
-                <IconButton onClick={clearAllFields} color="inherit" size="small">
-                  <XIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Save Request">
-                <IconButton onClick={openSaveRequestDialog} color="inherit" size="small">
-                  <SaveIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
             </Box>
+
             {error && (
               <Box sx={{ bgcolor: 'error.light', color: 'error.contrastText', p: 1, borderRadius: 1, mb: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="body2" sx={{ fontWeight: 'medium' }}>{error}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 'medium' }}>{error} ❌</Typography>
                 <IconButton size="small" onClick={() => setError(null)} color="inherit"><XIcon fontSize="small" /></IconButton>
               </Box>
             )}
@@ -1117,11 +1408,25 @@ const App = () => {
               onChange={(event, newValue) => setActiveRequestTab(newValue)}
               aria-label="request tabs"
               sx={{ borderBottom: '1px solid', borderColor: 'divider', mb: 1, minHeight: '40px' }}
+              variant="scrollable"
+              scrollButtons="auto"
             >
-              <Tab label="Query" sx={{ textTransform: 'none', minHeight: '40px' }} />
+              <Tab label="Params" sx={{ textTransform: 'none', minHeight: '40px' }} />
               <Tab label="Auth" sx={{ textTransform: 'none', minHeight: '40px' }} />
               <Tab label="Headers" sx={{ textTransform: 'none', minHeight: '40px' }} />
+              <Tab label="Cookies" sx={{ textTransform: 'none', minHeight: '40px' }} />
               <Tab label="Body" sx={{ textTransform: 'none', minHeight: '40px' }} />
+              
+              <Tooltip title="Save Request">
+                <IconButton onClick={openSaveRequestDialog} color="inherit" size="small" sx={{p:"10px",margin:"5px"}}>
+                  <SaveIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Clear All Fields">
+                <IconButton onClick={clearAllFields} color="inherit" size="small" sx={{p:"10px", margin:"5px"}}>
+                  <XIcon fontSize="small"/>
+                </IconButton>
+              </Tooltip>
             </Tabs>
 
             {/* Query Params Content */}
@@ -1145,9 +1450,7 @@ const App = () => {
                     </Grid>
                   </Grid>
                 ))}
-                <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setQueryParams, queryParams)} variant="outlined" size="small" sx={{ mt: 1 }}>
-                  Add Parameter
-                </Button>
+                <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setQueryParams, queryParams)} variant="outlined" size="small" sx={{ mt: 1 }}> Add Parameter </Button>
               </Box>
             )}
 
@@ -1185,8 +1488,24 @@ const App = () => {
 
                 {authType === 'basic' && (
                   <Box>
-                    <TextField fullWidth label="Username" value={basicAuthUsername} onChange={(e) => setBasicAuthUsername(e.target.value)} variant="outlined" size="small" sx={{ mb: 1 }} />
-                    <TextField fullWidth label="Password" type="password" value={basicAuthPassword} onChange={(e) => setBasicAuthPassword(e.target.value)} variant="outlined" size="small" />
+                    <TextField
+                      fullWidth
+                      label="Username"
+                      value={basicAuthUsername}
+                      onChange={(e) => setBasicAuthUsername(e.target.value)}
+                      variant="outlined"
+                      size="small"
+                      sx={{ mb: 1 }}
+                    />
+                    <TextField
+                      fullWidth
+                      label="Password"
+                      type="password"
+                      value={basicAuthPassword}
+                      onChange={(e) => setBasicAuthPassword(e.target.value)}
+                      variant="outlined"
+                      size="small"
+                    />
                   </Box>
                 )}
               </Box>
@@ -1213,14 +1532,37 @@ const App = () => {
                     </Grid>
                   </Grid>
                 ))}
-                <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setHeaders, headers)} variant="outlined" size="small" sx={{ mt: 1 }}>
-                  Add Header
-                </Button>
+                <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setHeaders, headers)} variant="outlined" size="small" sx={{ mt: 1 }}> Add Header </Button>
+              </Box>
+            )}
+
+            {/* Cookies Content */}
+            {activeRequestTab === 3 && (
+              <Box sx={{ overflowY: 'auto', flexGrow: 1 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'medium' }}>Cookies</Typography>
+                {cookies.map((c) => (
+                  <Grid container spacing={1} key={c.id} alignItems="center" sx={{ mb: 0.5 }}>
+                    <Grid item xs={5}>
+                      <TextField fullWidth placeholder="Name" value={c.key} onChange={(e) => updateKeyValuePair(setCookies, cookies, c.id, 'key', e.target.value)} size="small" />
+                    </Grid>
+                    <Grid item xs={6}>
+                      <TextField fullWidth placeholder="Value" value={c.value} onChange={(e) => updateKeyValuePair(setCookies, cookies, c.id, 'value', e.target.value)} size="small" />
+                    </Grid>
+                    <Grid item xs={1}>
+                      <Tooltip title="Remove Cookie">
+                        <IconButton onClick={() => removeKeyValuePair(setCookies, cookies, c.id)} size="small" color="error" >
+                          <XIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Grid>
+                  </Grid>
+                ))}
+                <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setCookies, cookies)} variant="outlined" size="small" sx={{ mt: 1 }}> Add Cookie </Button>
               </Box>
             )}
 
             {/* Body Content */}
-            {activeRequestTab === 3 && (
+            {activeRequestTab === 4 && (
               <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
                 <FormControl fullWidth size="small" sx={{ mb: 1 }}>
                   <InputLabel id="body-type-select-label">Body Type</InputLabel>
@@ -1228,239 +1570,257 @@ const App = () => {
                     labelId="body-type-select-label"
                     value={bodyType}
                     label="Body Type"
-                    onChange={(e) => { setBodyType(e.target.value); }}
+                    onChange={(e) => {
+                      setBodyType(e.target.value);
+                    }}
                   >
                     <MenuItem value="none">No Body</MenuItem>
-                    <MenuItem value="raw-json">Raw (JSON)</MenuItem>
-                    <MenuItem value="form-urlencoded">Form-urlencoded</MenuItem>
+                    <MenuItem value="raw-json">Raw JSON</MenuItem>
+                    <MenuItem value="form-urlencoded">x-www-form-urlencoded</MenuItem>
                   </Select>
                 </FormControl>
 
                 {bodyType === 'raw-json' && (
-                  <>
+                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                     <TextField
                       fullWidth
-                      label="Request Body (JSON)"
+                      multiline
+                      rows={15}
+                      placeholder="Enter JSON request body"
                       value={requestBody}
                       onChange={(e) => setRequestBody(e.target.value)}
                       variant="outlined"
-                      multiline
-                      rows={20}
-                      placeholder="Enter JSON request body here"
-                      sx={{ flexGrow: 1, mb: 1, '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
-                      size="small"
+                      sx={{ flexGrow: 1,'& .MuiInputBase-input': { fontFamily: 'monospace' }}}
                     />
-                    <Button onClick={formatJsonBody} variant="outlined" size="small" sx={{ alignSelf: 'flex-start', mt: 1 }}>
+                    <Button
+                      variant="outlined"
+                      onClick={formatJsonBody}
+                      size="small"
+                      startIcon={<FormatIcon />}
+                      sx={{ mt: 1, alignSelf: 'flex-end' }}
+                    >
                       Format JSON
                     </Button>
-                  </>
+                  </Box>
                 )}
 
                 {bodyType === 'form-urlencoded' && (
                   <Box sx={{ overflowY: 'auto', flexGrow: 1 }}>
-                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'medium' }}>Form Encoded Data</Typography>
-                    {formEncodedBody.map((item) => (
-                      <Grid container spacing={1} key={item.id} alignItems="center" sx={{ mb: 0.5 }}>
+                    {formEncodedBody.map((param) => (
+                      <Grid container spacing={1} key={param.id} alignItems="center" sx={{ mb: 0.5 }}>
                         <Grid item xs={5}>
-                          <TextField fullWidth placeholder="Key" value={item.key} onChange={(e) => updateKeyValuePair(setFormEncodedBody, formEncodedBody, item.id, 'key', e.target.value)} size="small" />
+                          <TextField fullWidth placeholder="Key" value={param.key} onChange={(e) => updateKeyValuePair(setFormEncodedBody, formEncodedBody, param.id, 'key', e.target.value)} size="small" />
                         </Grid>
                         <Grid item xs={6}>
-                          <TextField fullWidth placeholder="Value" value={item.value} onChange={(e) => updateKeyValuePair(setFormEncodedBody, formEncodedBody, item.id, 'value', e.target.value)} size="small" />
+                          <TextField fullWidth placeholder="Value" value={param.value} onChange={(e) => updateKeyValuePair(setFormEncodedBody, formEncodedBody, param.id, 'value', e.target.value)} size="small" />
                         </Grid>
                         <Grid item xs={1}>
                           <Tooltip title="Remove Field">
-                            <IconButton onClick={() => removeKeyValuePair(setFormEncodedBody, formEncodedBody, item.id)} size="small" color="error" >
+                            <IconButton onClick={() => removeKeyValuePair(setFormEncodedBody, formEncodedBody, param.id)} size="small" color="error" >
                               <XIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
                         </Grid>
                       </Grid>
                     ))}
-                    <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setFormEncodedBody, formEncodedBody)} variant="outlined" size="small" sx={{ mt: 1 }}>
-                      Add Field
-                    </Button>
+                    <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setFormEncodedBody, formEncodedBody)} variant="outlined" size="small" sx={{ mt: 1 }}> Add Field </Button>
                   </Box>
                 )}
               </Box>
             )}
+
+            {/* Removed Pre-request Script Content */}
+            {/* Removed Response Tests Content */}
           </Box>
 
           {/* 3. Response Panel */}
-          <Box
-            sx={{
-              flexGrow: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              minHeight: { xs: '50vh', md: 'auto' },
-              width: { md: '500px' },
-              p: 1.5, // Reduced padding
-            }}
+          <Box sx={{ flexGrow: 3,
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: { xs: '50vh', md: 'auto' },
+            p: 1.5,
+            width: { xs: '100%', md: '28%' }
+          }}
           >
-            {/* Response Tabs & Actions */}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid', borderColor: 'divider', mb: 1, minHeight: '40px' }}>
-              <Tabs
-                value={activeResponseTab}
-                onChange={(event, newValue) => setActiveResponseTab(newValue)}
-                aria-label="response tabs"
-                sx={{ minHeight: '40px' }}
-              >
-                <Tab label="Body" sx={{ textTransform: 'none', minHeight: '40px' }} />
-                <Tab label="Headers" sx={{ textTransform: 'none', minHeight: '40px' }} />
-                <Tab label="Status" sx={{ textTransform: 'none', minHeight: '40px' }} />
-              </Tabs>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                {settings.showRequestTime && requestTime && (
-                  <>
-                  <Typography variant="caption" color="text.primary" sx={{ mr: 1, display: { xs: 'none', sm: 'block' } }}>
-                    Status: {responseStatus}
-                  </Typography>
-                  <Typography variant="caption" color="text.primary" sx={{ mr: 1, display: { xs: 'none', sm: 'block' } }}>
-                    Time: {requestTime} ms
-                  </Typography>
-                  </>
-                )}
+            {/* Response Status & Time */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1, justifyContent: 'space-between' }}>
+              {settings.showResponseStatus && (
+                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                  Status: {responseStatus ? (
+                    <Box component="span" sx={{
+                      color:
+                        responseStatus >= 200 && responseStatus < 300 ? theme.palette.success.main :
+                          responseStatus >= 400 && responseStatus < 500 ? theme.palette.warning.main :
+                            responseStatus >= 500 ? theme.palette.error.main :
+                              theme.palette.text.primary,
+                    }}>
+                      {responseStatus} {responseStatusText}
+                    </Box>
+                  ) : 'N/A'}
+                </Typography>
+              )}
+              {settings.showRequestTime && requestTime && (
+                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                  Time: {requestTime} ms ⏱️
+                </Typography>
+              )}
+            </Box>
+
+            {/* Response Tabs */}
+            <Tabs
+              value={activeResponseTab}
+              onChange={(event, newValue) => setActiveResponseTab(newValue)}
+              aria-label="response tabs"
+              sx={{ borderBottom: '1px solid', borderColor: 'divider', mb: 1, minHeight: '55px' }}
+              variant="scrollable"
+              scrollButtons="auto"
+            >
+              <Tab label="Body" sx={{ textTransform: 'none', minHeight: '40px' }} />
+              <Tab label="Headers" sx={{ textTransform: 'none', minHeight: '40px' }} />
+              <Tab label="Cookies" sx={{ textTransform: 'none', minHeight: '40px' }} />
+              <Box sx={{ ml: 'auto', display: 'flex', gap: 1 ,p:"10px"}}>
                 <Tooltip title="Copy Response Body">
-                  <IconButton onClick={copyResponseBody} size="small">
-                    <CopyIcon fontSize="small" />
-                  </IconButton>
+                  <Button
+                    variant="outlined"
+                    startIcon={<CopyIcon />}
+                    onClick={copyResponseBody}
+                    size="small"
+                  >
+                    {copyFeedback.includes('Copied!') && activeResponseTab === 0 ? copyFeedback : 'Copy Body'} 📋
+                  </Button>
                 </Tooltip>
-                {copyFeedback && <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5, display: { xs: 'none', sm: 'block' } }}>{copyFeedback}</Typography>}
-                <Tooltip title="Download Response Body as JSON">
-                  <IconButton onClick={saveResponseBodyAsJson} size="small">
-                    <DownloadIcon fontSize="small" />
-                  </IconButton>
+                <Tooltip title="Save Response Body as JSON">
+                  <Button
+                    variant="outlined"
+                    startIcon={<DownloadIcon />}
+                    onClick={saveResponseBodyAsJson}
+                    size="small"
+                  >
+                    Save 💾
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Clear Response">
+                  <Button
+                    variant="outlined"
+                    startIcon={<ClearIcon />}
+                    onClick={clearResponseBody}
+                    size="small"
+                    color="warning"
+                  >
+                    Clear 🧹
+                  </Button>
                 </Tooltip>
               </Box>
-            </Box>
+            </Tabs>
 
             {/* Response Body Content */}
             {activeResponseTab === 0 && (
-              <Box sx={{
-                flexGrow: 1,
-                p: 1,
-                bgcolor: 'background.paper',
-                borderRadius: '4px',
-                overflow: 'auto',
-                fontFamily: 'monospace',
-                fontSize: settings.responseBodyFontSize,
+              <Box sx={{ flexGrow: 1, overflowY: 'auto', bgcolor: 'background.paper', borderRadius: 1, p: 1.5,
+                border: '1px solid', borderColor: 'divider',
+                fontFamily: 'monospace', fontSize: settings.responseBodyFontSize,
                 whiteSpace: settings.responseTextWrap ? 'pre-wrap' : 'pre',
-                wordBreak: settings.responseTextWrap ? 'break-word' : 'normal',
-                border: '1px solid', // Add a subtle border
-                borderColor: 'divider',
-              }}
-              >
+                wordWrap: settings.responseTextWrap ? 'break-word' : 'normal',
+              }}>
                 {loading ? (
                   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
                     <CircularProgress />
                   </Box>
-                ) : responseBody ? (
-                  settings.highlightSyntaxInResponse ? (
-<SyntaxHighlighter
-  language={getLanguage(responseBody)}
-  style={syntaxStyle}
-  wrapLongLines={settings.responseTextWrap}
-  customStyle={{
-    margin: 0,
-    padding: '1em',
-    backgroundColor: 'transparent',
-    fontSize: settings.responseBodyFontSize,
-    whiteSpace: settings.responseTextWrap ? 'pre-wrap' : 'pre',
-    wordBreak: settings.responseTextWrap ? 'break-word' : 'normal',
-    width: '100%',
-    boxSizing: 'border-box',
-    height: '100%',
-    overflowX: 'auto',
-    textOverflow: 'ellipsis'
-  }}
-  showLineNumbers={true}
->
-  {typeof responseBody === 'string'
-    ? responseBody
-    : JSON.stringify(responseBody, null, 2)}
-</SyntaxHighlighter>
-
-                  ) : (
-                    <pre style={{
-                      margin: 0,
-                      padding: '1em',
-                      whiteSpace: settings.responseTextWrap ? 'pre-wrap' : 'pre',
-                      wordBreak: settings.responseTextWrap ? 'break-word' : 'normal',
-                      fontSize: settings.responseBodyFontSize,
-                      boxSizing: 'border-box',
-                      width: '500px',
-                    }}>{responseBody}</pre>
-                  )
                 ) : (
-                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 5 }}>
-                    Send a request to see the response here.
-                  </Typography>
+                  responseBody ? (
+                    settings.highlightSyntaxInResponse ? (
+                      <SyntaxHighlighter
+                        language={getLanguage(responseBody)}
+                        style={syntaxStyle}
+                        customStyle={{
+                          background: 'transparent',
+                          padding: 0,
+                          margin: 0,
+                          fontSize: settings.responseBodyFontSize,
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          overflowX: 'hidden',
+                        }}
+                        codeTagProps={{
+                          style: {
+                            fontFamily: 'monospace',
+                            fontSize: settings.responseBodyFontSize,
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                          },
+                        }}
+                      >
+                        {responseBody}
+                      </SyntaxHighlighter>
+                    ) : (
+                      responseBody
+                    )
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                      {error ? `Error: ${error}` : 'Make a request to see the response here. 🚀'}
+                    </Typography>
+                  )
                 )}
               </Box>
             )}
 
             {/* Response Headers Content */}
             {activeResponseTab === 1 && (
-              <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 1, bgcolor: 'background.paper', borderRadius: '4px', border: '1px solid', borderColor: 'divider' }}>
-                {Object.keys(responseHeaders).length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', textAlign: 'center', py: 5 }}>
-                    No response headers received yet.
-                  </Typography>
+              <Box sx={{ flexGrow: 1, overflowY: 'auto', bgcolor: 'background.paper', borderRadius: 1, p: 1.5,
+                border: '1px solid', borderColor: 'divider',
+                fontFamily: 'monospace', fontSize: settings.responseBodyFontSize,
+              }}>
+                {Object.keys(responseHeaders).length > 0 ? (
+                  Object.entries(responseHeaders).map(([key, value]) => (
+                    <Typography key={key} variant="body2" sx={{ mb: 0.5 }}>
+                      <Box component="span" sx={{ fontWeight: 'bold', color: 'primary.main' }}>{key}</Box>: {value}
+                    </Typography>
+                  ))
                 ) : (
-                  <List dense>
-                    {Object.entries(responseHeaders).map(([key, value]) => (
-                      <ListItem key={key} sx={{ py: 0.5, borderBottom: '1px dotted', borderColor: 'divider' }}>
-                        <ListItemText
-                          primary={<Typography variant="body2" sx={{ fontWeight: 'bold' }}>{key}:</Typography>}
-                          secondary={<Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>{value}</Typography>}
-                        />
-                      </ListItem>
-                    ))}
-                  </List>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                    No response headers. 🤷‍♀️
+                  </Typography>
+                )}
+                {Object.keys(responseHeaders).length > 0 && (
+                  <Button startIcon={<CopyIcon />} onClick={copyResponseHeaders} variant="outlined" size="small" sx={{ mt: 1 }}>
+                    {copyFeedback.includes('Copied Headers') ? copyFeedback : 'Copy All Headers'}
+                  </Button>
                 )}
               </Box>
             )}
 
-            {/* Response Status & Time Content */}
+            {/* Response Cookies Content */}
             {activeResponseTab === 2 && (
-              <Box sx={{ flexGrow: 1, bgcolor: 'background.paper', borderRadius: '4px', border: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-                {settings.showResponseStatus && responseStatus && (
-                  <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 1, color:
-                    responseStatus >= 200 && responseStatus < 300 ? 'success.main' :
-                    responseStatus >= 400 && responseStatus < 500 ? 'warning.main' :
-                    responseStatus >= 500 ? 'error.main' : 'text.secondary'
-                  }}>
-                    Status: {responseStatus || 'N/A'}
-                  </Typography>
-                )}
-                {settings.showRequestTime && requestTime && (
-                  <>
-                    <Typography variant="body1" sx={{ color: 'text.primary', fontWeight: 'bold' }}>
-                      Request Time: <Box component="span" sx={{ color: 'info.main' }}>{requestTime} ms</Box>
+              <Box sx={{ flexGrow: 1, overflowY: 'auto', bgcolor: 'background.paper', borderRadius: 1, p: 1.5,
+                border: '1px solid', borderColor: 'divider',
+                fontFamily: 'monospace', fontSize: settings.responseBodyFontSize,
+              }}>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'medium' }}>Response Cookies</Typography>
+                {responseCookies.length > 0 ? (
+                  responseCookies.map((cookie, index) => (
+                    <Typography key={index} variant="body2" sx={{ mb: 0.5 }}>
+                      <Box component="span" sx={{ fontWeight: 'bold', color: 'secondary.main' }}>{cookie.key}</Box>=<Box component="span" sx={{ fontWeight: 'normal' }}>{cookie.value}</Box>
                     </Typography>
-                  </>
-                )}
-                {!responseStatus && !requestTime && (
+                  ))
+                ) : (
                   <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                    No request sent yet.
+                    No cookies received in response. 🍪
                   </Typography>
+                )}
+                 {responseCookies.length > 0 && (
+                  <Button startIcon={<CopyIcon />} onClick={copyResponseCookies} variant="outlined" size="small" sx={{ mt: 1 }}>
+                    {copyFeedback.includes('Copied Cookies') ? copyFeedback : 'Copy All Cookies'}
+                  </Button>
                 )}
               </Box>
             )}
           </Box>
         </Box>
 
-        {/* Dialogs (remain outside the main layout for consistent overlay behavior) */}
-
+        {/* Dialogs */}
         {/* Save Request Dialog */}
-        <Dialog open={isSaveRequestDialogOpen} onClose={() => setIsSaveRequestDialogOpen(false)} maxWidth="sm" fullWidth>
+        <Dialog open={isSaveRequestDialogOpen} onClose={() => setIsSaveRequestDialogOpen(false)} fullWidth maxWidth="sm">
           <DialogTitle>Save Request</DialogTitle>
-          <DialogContent>
-            {error && (
-              <Box sx={{ bgcolor: 'error.light', color: 'error.contrastText', p: 1, borderRadius: 1, mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="body2" sx={{ fontWeight: 'medium' }}>{error}</Typography>
-                <IconButton size="small" onClick={() => setError(null)} color="inherit"><XIcon fontSize="small" /></IconButton>
-              </Box>
-            )}
+          <DialogContent dividers>
             <TextField
               autoFocus
               margin="dense"
@@ -1473,44 +1833,35 @@ const App = () => {
               sx={{ mb: 2 }}
               size="small"
             />
-            <FormControl fullWidth size="small">
+            <FormControl fullWidth variant="outlined" size="small">
               <InputLabel id="select-collection-label">Select Collection</InputLabel>
               <Select
                 labelId="select-collection-label"
                 value={selectedCollectionId}
-                label="Select Collection"
                 onChange={(e) => setSelectedCollectionId(e.target.value)}
+                label="Select Collection"
               >
-                {collections.length === 0 ? (
-                  <MenuItem disabled>
-                    <em>No collections available. Create one first.</em>
-                  </MenuItem>
-                ) : (
-                  collections.map(collection => (
-                    <MenuItem key={collection.id} value={collection.id}>
-                      {collection.name}
-                    </MenuItem>
-                  ))
-                )}
+                {collections.map(collection => (
+                  <MenuItem key={collection.id} value={collection.id}>{collection.name}</MenuItem>
+                ))}
               </Select>
             </FormControl>
+            {collections.length === 0 && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontStyle: 'italic' }}>
+                No collections available. Create one first. 📝
+              </Typography>
+            )}
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setIsSaveRequestDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveRequest} variant="contained">Save</Button>
+            <Button onClick={handleSaveRequest} variant="contained" disabled={!newRequestName.trim() || !selectedCollectionId}>Save</Button>
           </DialogActions>
         </Dialog>
 
         {/* New Collection Dialog */}
-        <Dialog open={isNewCollectionDialogOpen} onClose={() => setIsNewCollectionDialogOpen(false)} maxWidth="xs" fullWidth>
+        <Dialog open={isNewCollectionDialogOpen} onClose={() => setIsNewCollectionDialogOpen(false)} fullWidth maxWidth="xs">
           <DialogTitle>Create New Collection</DialogTitle>
-          <DialogContent>
-            {error && (
-              <Box sx={{ bgcolor: 'error.light', color: 'error.contrastText', p: 1, borderRadius: 1, mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="body2" sx={{ fontWeight: 'medium' }}>{error}</Typography>
-                <IconButton size="small" onClick={() => setError(null)} color="inherit"><XIcon fontSize="small" /></IconButton>
-              </Box>
-            )}
+          <DialogContent dividers>
             <TextField
               autoFocus
               margin="dense"
@@ -1525,20 +1876,14 @@ const App = () => {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setIsNewCollectionDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleNewCollection} variant="contained">Create</Button>
+            <Button onClick={handleNewCollection} variant="contained" disabled={!newCollectionName.trim()}>Create</Button>
           </DialogActions>
         </Dialog>
 
         {/* Edit Collection Dialog */}
-        <Dialog open={isEditCollectionDialogOpen} onClose={() => setIsEditCollectionDialogOpen(false)} maxWidth="xs" fullWidth>
+        <Dialog open={isEditCollectionDialogOpen} onClose={() => setIsEditCollectionDialogOpen(false)} fullWidth maxWidth="xs">
           <DialogTitle>Edit Collection Name</DialogTitle>
-          <DialogContent>
-            {error && (
-              <Box sx={{ bgcolor: 'error.light', color: 'error.contrastText', p: 1, borderRadius: 1, mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="body2" sx={{ fontWeight: 'medium' }}>{error}</Typography>
-                <IconButton size="small" onClick={() => setError(null)} color="inherit"><XIcon fontSize="small" /></IconButton>
-              </Box>
-            )}
+          <DialogContent dividers>
             <TextField
               autoFocus
               margin="dense"
@@ -1553,7 +1898,7 @@ const App = () => {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setIsEditCollectionDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleEditCollectionName} variant="contained">Save Changes</Button>
+            <Button onClick={handleEditCollectionName} variant="contained" disabled={!editCollectionName.trim()}>Save</Button>
           </DialogActions>
         </Dialog>
 
@@ -1561,177 +1906,120 @@ const App = () => {
         <Dialog
           open={isConfirmDialogOpen}
           onClose={() => setIsConfirmDialogOpen(false)}
-          maxWidth="sm"
+          aria-labelledby="confirm-dialog-title"
+          aria-describedby="confirm-dialog-description"
           fullWidth
+          maxWidth="xs"
         >
-          <DialogTitle>{confirmDialogDetails.title}</DialogTitle>
-          <DialogContent>
-            <Typography>{confirmDialogDetails.message}</Typography>
+          <DialogTitle id="confirm-dialog-title">{confirmDialogDetails.title}</DialogTitle>
+          <DialogContent dividers>
+            <Typography id="confirm-dialog-description">
+              {confirmDialogDetails.message}
+            </Typography>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setIsConfirmDialogOpen(false)}>Cancel</Button>
-            <Button
-              onClick={() => {
-                confirmDialogDetails.onConfirm();
-                setIsConfirmDialogOpen(false);
-              }}
-              color="error"
-              variant="contained"
-            >
+            <Button onClick={() => setIsConfirmDialogOpen(false)} color="primary">
+              Cancel
+            </Button>
+            <Button onClick={confirmDialogDetails.onConfirm} color="error" variant="contained" autoFocus>
               Confirm
             </Button>
           </DialogActions>
         </Dialog>
 
-        {/* Settings Dialog */}
-        <Dialog open={isSettingsDialogOpen} onClose={() => setIsSettingsDialogOpen(false)} maxWidth="md" fullWidth>
-          <DialogTitle>Application Settings</DialogTitle>
-          <DialogContent dividers sx={{ display: 'flex', p: 0 }}>
-            <Box sx={{ borderRight: 1, borderColor: 'divider', width: 180, flexShrink: 0 }}>
-              <Tabs
-                orientation="vertical"
-                value={activeSettingsTab}
-                onChange={(e, newValue) => setActiveSettingsTab(newValue)}
-                aria-label="Vertical settings tabs"
-                sx={{ borderRight: 1, borderColor: 'divider' }}
+        {/* Import Conflict Resolution Dialog */}
+        <Dialog
+          open={isImportConflictDialogOpen}
+          onClose={() => { setIsImportConflictDialogOpen(false); setImportDataPending(null); fileInputRef.current.value = null; }}
+          aria-labelledby="import-conflict-dialog-title"
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle id="import-conflict-dialog-title">Import Collections Conflict</DialogTitle>
+          <DialogContent dividers>
+            <Typography variant="body1" sx={{ mb: 2 }}>
+              It looks like you're trying to import collections. How would you like to handle existing collections with the same name?
+            </Typography>
+            <FormControl component="fieldset" fullWidth>
+              <RadioGroup
+                aria-label="import-resolution"
+                name="import-resolution-group"
+                value={importConflictResolution}
+                onChange={(e) => setImportConflictResolution(e.target.value)}
               >
-                <Tab label="General" sx={{ textTransform: 'none', alignItems: 'flex-start' }} />
-                <Tab label="Defaults" sx={{ textTransform: 'none', alignItems: 'flex-start' }} />
-                <Tab label="Display" sx={{ textTransform: 'none', alignItems: 'flex-start' }} />
-                <Tab label="Data" sx={{ textTransform: 'none', alignItems: 'flex-start' }} />
-              </Tabs>
-            </Box>
-            <Box sx={{ flexGrow: 1, p: 3, overflowY: 'auto' }}>
-              {activeSettingsTab === 0 && (
-                <Grid container spacing={2}> {/* Reduced spacing */}
-                  <Grid item xs={12}>
-                    <Typography variant="h6" gutterBottom>General Settings</Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={settings.autoFormatRequestJson}
-                          onChange={(e) => handleSettingChange('autoFormatRequestJson', e.target.checked)}
-                          size="small"
-                        />
-                      }
-                      label={<Typography variant="body2">Auto-format Request JSON</Typography>}
-                    />
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 4 }}>
-                      Automatically formats raw JSON request body as you type.
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={settings.autoFormatResponseJson}
-                          onChange={(e) => handleSettingChange('autoFormatResponseJson', e.target.checked)}
-                          size="small"
-                        />
-                      }
-                      label={<Typography variant="body2">Auto-format Response JSON</Typography>}
-                    />
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 4 }}>
-                      Automatically formats JSON response bodies for improved readability.
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={settings.enableRequestBodyValidation}
-                          onChange={(e) => handleSettingChange('enableRequestBodyValidation', e.target.checked)}
-                          size="small"
-                        />
-                      }
-                      label={<Typography variant="body2">Validate Request Body JSON</Typography>}
-                    />
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 4 }}>
-                      Prevents sending requests with invalid JSON bodies.
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={settings.enableCorsProxy}
-                          onChange={(e) => handleSettingChange('enableCorsProxy', e.target.checked)}
-                          size="small"
-                        />
-                      }
-                      label={<Typography variant="body2">Enable CORS Proxy (Advanced)</Typography>}
-                    />
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 4 }}>
-                      Use a CORS proxy for cross-origin requests. Only enable if you understand the implications.
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      label="Request Timeout (ms)"
-                      type="number"
-                      value={settings.requestTimeout}
-                      onChange={(e) => handleSettingChange('requestTimeout', parseInt(e.target.value, 10))}
-                      fullWidth
-                      margin="normal"
-                      size="small"
-                      helperText="Maximum time (in milliseconds) to wait for a response."
-                      inputProps={{ min: 1000 }}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={settings.clearHistoryOnAppLoad}
-                          onChange={(e) => handleSettingChange('clearHistoryOnAppLoad', e.target.checked)}
-                          size="small"
-                        />
-                      }
-                      label={<Typography variant="body2">Clear History on App Load</Typography>}
-                    />
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 4 }}>
-                      Automatically clear the request history every time the application loads.
-                    </Typography>
-                  </Grid>
-                </Grid>
-              )}
+                <FormControlLabel
+                  value="merge"
+                  control={<Radio />}
+                  label={
+                    <Box>
+                      <Typography variant="subtitle1">Merge Collections (Default) 🤝</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Existing collections with the same name will have new requests appended. Requests with identical names within the same collection will be skipped.
+                      </Typography>
+                    </Box>
+                  }
+                />
+                <FormControlLabel
+                  value="overwrite"
+                  control={<Radio />}
+                  label={
+                    <Box>
+                      <Typography variant="subtitle1">Overwrite All Collections 🚨</Typography>
+                      <Typography variant="body2" color="error">
+                        **WARNING**: This will delete all your current collections and replace them entirely with the imported collections. This action cannot be undone.
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </RadioGroup>
+            </FormControl>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => { setIsImportConflictDialogOpen(false); setImportDataPending(null); fileInputRef.current.value = null; }}>
+              Cancel
+            </Button>
+            <Button onClick={handleImportCollections} variant="contained" color="primary">
+              Proceed with Import
+            </Button>
+          </DialogActions>
+        </Dialog>
 
-              {activeSettingsTab === 1 && (
+
+        {/* Settings Dialog */}
+        <Dialog open={isSettingsDialogOpen} onClose={() => setIsSettingsDialogOpen(false)} fullWidth maxWidth="md">
+          <DialogTitle>Application Settings ⚙️</DialogTitle>
+          <DialogContent dividers sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, p: 0 }}>
+            <Tabs
+              orientation={window.innerWidth < 600 ? "horizontal" : "vertical"}
+              variant="scrollable"
+              value={activeSettingsTab}
+              onChange={(e, newValue) => setActiveSettingsTab(newValue)}
+              aria-label="settings tabs"
+              sx={{ borderRight: { sm: 1 }, borderColor: 'divider', minWidth: { sm: 180 }, flexShrink: 0, borderBottom: { xs: 1, sm: 0 } }}
+            >
+              <Tab label="General" sx={{ textTransform: 'none' }} />
+              <Tab label="Theme & Display" sx={{ textTransform: 'none' }} />
+              <Tab label="History" sx={{ textTransform: 'none' }} />
+              <Tab label="Environments" sx={{ textTransform: 'none' }} />
+              <Tab label="Advanced" sx={{ textTransform: 'none' }} />
+              <Tab label="Import/Export" sx={{ textTransform: 'none' }} />
+            </Tabs>
+            <Box sx={{ flexGrow: 1, p: 2, overflowY: 'auto', maxHeight: { xs: '60vh', sm: '70vh' } }}>
+              {activeSettingsTab === 0 && ( // General Settings
                 <Grid container spacing={2}>
                   <Grid item xs={12}>
-                    <Typography variant="h6" gutterBottom>Default Request Values</Typography>
-                  </Grid>
-                  <Grid item xs={12}>
+                    <Typography variant="h6" sx={{ mb: 1 }}>Default Request Values</Typography>
                     <TextField
-                      label="Max History Items"
-                      type="number"
-                      value={settings.maxHistoryItems}
-                      onChange={(e) => handleSettingChange('maxHistoryItems', parseInt(e.target.value, 10))}
                       fullWidth
-                      margin="normal"
-                      size="small"
-                      helperText="Maximum number of requests to keep in history (0 for unlimited)."
-                      inputProps={{ min: 0 }}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
                       label="Default URL"
                       value={settings.defaultUrl}
                       onChange={(e) => handleSettingChange('defaultUrl', e.target.value)}
-                      fullWidth
                       margin="normal"
                       size="small"
-                      helperText="The URL that pre-fills when clearing fields or starting fresh."
                     />
-                  </Grid>
-                  <Grid item xs={12}>
                     <FormControl fullWidth margin="normal" size="small">
-                      <InputLabel id="default-method-label">Default Method</InputLabel>
+                      <InputLabel>Default Method</InputLabel>
                       <Select
-                        labelId="default-method-label"
                         value={settings.defaultMethod}
                         label="Default Method"
                         onChange={(e) => handleSettingChange('defaultMethod', e.target.value)}
@@ -1742,93 +2030,69 @@ const App = () => {
                         <MenuItem value="PATCH">PATCH</MenuItem>
                         <MenuItem value="DELETE">DELETE</MenuItem>
                       </Select>
-                      <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 1, mt: 0.5 }}>
-                        The HTTP method that pre-fills for new requests.
-                      </Typography>
                     </FormControl>
-                  </Grid>
-                  <Grid item xs={12}>
                     <FormControl fullWidth margin="normal" size="small">
-                      <InputLabel id="default-auth-type-label">Default Authentication Type</InputLabel>
+                      <InputLabel>Default Body Type</InputLabel>
                       <Select
-                        labelId="default-auth-type-label"
+                        value={settings.defaultBodyType}
+                        label="Default Body Type"
+                        onChange={(e) => handleSettingChange('defaultBodyType', e.target.value)}
+                      >
+                        <MenuItem value="none">No Body</MenuItem>
+                        <MenuItem value="raw-json">Raw JSON</MenuItem>
+                        <MenuItem value="form-urlencoded">x-www-form-urlencoded</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <FormControl fullWidth margin="normal" size="small">
+                      <InputLabel>Default Auth Type</InputLabel>
+                      <Select
                         value={settings.defaultAuthType}
-                        label="Default Authentication Type"
+                        label="Default Auth Type"
                         onChange={(e) => handleSettingChange('defaultAuthType', e.target.value)}
                       >
                         <MenuItem value="none">None</MenuItem>
                         <MenuItem value="bearer">Bearer Token</MenuItem>
                         <MenuItem value="basic">Basic Auth</MenuItem>
                       </Select>
-                      <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 1, mt: 0.5 }}>
-                        The default authentication method for new requests.
-                      </Typography>
                     </FormControl>
-                  </Grid>
-                  {settings.defaultAuthType === 'bearer' && (
-                    <Grid item xs={12}>
+                    {(settings.defaultAuthType === 'bearer') && (
                       <TextField
+                        fullWidth
                         label="Default Bearer Token"
                         value={settings.defaultAuthToken}
                         onChange={(e) => handleSettingChange('defaultAuthToken', e.target.value)}
-                        fullWidth
                         margin="normal"
                         size="small"
                         multiline
-                        rows={2}
-                        helperText="Default Bearer token for new requests."
+                        rows={3}
                       />
-                    </Grid>
-                  )}
-                  {settings.defaultAuthType === 'basic' && (
-                    <>
-                      <Grid item xs={12}>
+                    )}
+                    {(settings.defaultAuthType === 'basic') && (
+                      <Box>
                         <TextField
+                          fullWidth
                           label="Default Basic Auth Username"
                           value={settings.defaultBasicAuthUsername}
                           onChange={(e) => handleSettingChange('defaultBasicAuthUsername', e.target.value)}
-                          fullWidth
                           margin="normal"
                           size="small"
-                          helperText="Default username for Basic Authentication."
                         />
-                      </Grid>
-                      <Grid item xs={12}>
                         <TextField
+                          fullWidth
                           label="Default Basic Auth Password"
                           type="password"
                           value={settings.defaultBasicAuthPassword}
                           onChange={(e) => handleSettingChange('defaultBasicAuthPassword', e.target.value)}
-                          fullWidth
                           margin="normal"
                           size="small"
-                          helperText="Default password for Basic Authentication."
                         />
-                      </Grid>
-                    </>
-                  )}
-                  <Grid item xs={12}>
-                    <FormControl fullWidth margin="normal" size="small">
-                      <InputLabel id="default-body-type-label">Default Body Type</InputLabel>
-                      <Select
-                        labelId="default-body-type-label"
-                        value={settings.defaultBodyType}
-                        label="Default Body Type"
-                        onChange={(e) => handleSettingChange('defaultBodyType', e.target.value)}
-                      >
-                        <MenuItem value="none">No Body</MenuItem>
-                        <MenuItem value="raw-json">Raw (JSON)</MenuItem>
-                        <MenuItem value="form-urlencoded">Form-urlencoded</MenuItem>
-                      </Select>
-                      <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 1, mt: 0.5 }}>
-                        The default body type for new requests.
-                      </Typography>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Typography variant="subtitle2" sx={{ mt: 1, mb: 1, fontWeight: 'medium' }}>Default Headers</Typography>
+                      </Box>
+                    )}
+
+                    <Divider sx={{ my: 3 }} />
+                    <Typography variant="h6" sx={{ mb: 1 }}>Default Headers</Typography>
                     {settings.defaultHeaders.map((header) => (
-                      <Grid container spacing={1} key={header.id} alignItems="center" sx={{ mb: 0.5 }}>
+                      <Grid container spacing={1} key={header.id} alignItems="center" sx={{ mb: 1 }}>
                         <Grid item xs={5}>
                           <TextField fullWidth placeholder="Key" value={header.key} onChange={(e) => handleDefaultHeadersChange(header.id, 'key', e.target.value)} size="small" />
                         </Grid>
@@ -1836,134 +2100,284 @@ const App = () => {
                           <TextField fullWidth placeholder="Value" value={header.value} onChange={(e) => handleDefaultHeadersChange(header.id, 'value', e.target.value)} size="small" />
                         </Grid>
                         <Grid item xs={1}>
-                          <Tooltip title="Remove Default Header">
-                            <IconButton onClick={() => removeDefaultHeader(header.id)} size="small" color="error" >
-                              <XIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          <IconButton onClick={() => removeDefaultHeader(header.id)} size="small" color="error">
+                            <XIcon fontSize="small" />
+                          </IconButton>
                         </Grid>
                       </Grid>
                     ))}
-                    <Button startIcon={<PlusIcon />} onClick={addDefaultHeader} variant="outlined" size="small" sx={{ mt: 1 }}>
-                      Add Default Header
-                    </Button>
+                    <Button startIcon={<PlusIcon />} onClick={addDefaultHeader} variant="outlined" size="small" sx={{ mt: 1 }}> Add Default Header </Button>
                   </Grid>
                 </Grid>
               )}
 
-              {activeSettingsTab === 2 && (
+              {activeSettingsTab === 1 && ( // Theme & Display
                 <Grid container spacing={2}>
                   <Grid item xs={12}>
-                    <Typography variant="h6" gutterBottom>Display Settings</Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={settings.showRequestTime}
-                          onChange={(e) => handleSettingChange('showRequestTime', e.target.checked)}
-                          size="small"
-                        />
-                      }
-                      label={<Typography variant="body2">Show Request Time</Typography>}
-                    />
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 4 }}>
-                      Display the time taken for a request to complete.
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={settings.showResponseStatus}
-                          onChange={(e) => handleSettingChange('showResponseStatus', e.target.checked)}
-                          size="small"
-                        />
-                      }
-                      label={<Typography variant="body2">Show Response Status</Typography>}
-                    />
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 4 }}>
-                      Display the HTTP status code of the response.
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12}>
+                    <Typography variant="h6" sx={{ mb: 1 }}>Theme</Typography>
+                    <FormControl component="fieldset" margin="normal">
+                      <RadioGroup row value={settings.theme} onChange={(e) => handleSettingChange('theme', e.target.value)}>
+                        <FormControlLabel value="light" control={<Radio />} label="Light ☀️" />
+                        <FormControlLabel value="dark" control={<Radio />} label="Dark 🌙" />
+                      </RadioGroup>
+                    </FormControl>
+
+                    <Divider sx={{ my: 3 }} />
+                    <Typography variant="h6" sx={{ mb: 1 }}>Response Display</Typography>
                     <FormControlLabel
                       control={
                         <Switch
                           checked={settings.responseTextWrap}
                           onChange={(e) => handleSettingChange('responseTextWrap', e.target.checked)}
-                          size="small"
+                          name="responseTextWrap"
+                          color="primary"
                         />
                       }
-                      label={<Typography variant="body2">Wrap Response Body Text</Typography>}
+                      label="Wrap Response Text"
                     />
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 4 }}>
-                      Toggle text wrapping for the response body display area.
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12}>
                     <FormControlLabel
                       control={
                         <Switch
                           checked={settings.highlightSyntaxInResponse}
                           onChange={(e) => handleSettingChange('highlightSyntaxInResponse', e.target.checked)}
-                          size="small"
+                          name="highlightSyntaxInResponse"
+                          color="primary"
                         />
                       }
-                      label={<Typography variant="body2">Highlight Response Syntax</Typography>}
+                      label="Highlight Syntax in Response"
                     />
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 4 }}>
-                      Enable syntax highlighting for JSON, XML, HTML in the response body.
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12}>
                     <TextField
                       label="Response Body Font Size"
                       type="number"
                       value={settings.responseBodyFontSize}
-                      onChange={(e) => handleSettingChange('responseBodyFontSize', parseInt(e.target.value, 10))}
-                      fullWidth
+                      onChange={(e) => handleSettingChange('responseBodyFontSize', Number(e.target.value))}
+                      inputProps={{ min: 8, max: 24, step: 1 }}
                       margin="normal"
                       size="small"
-                      helperText="Adjust the font size of the response body text."
-                      inputProps={{ min: 8, max: 24 }}
+                      sx={{ width: '100%', maxWidth: 200 }}
                     />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <FormControl fullWidth margin="normal" size="small">
-                      <InputLabel id="theme-select-label">Application Theme</InputLabel>
-                      <Select
-                        labelId="theme-select-label"
-                        value={settings.theme}
-                        label="Application Theme"
-                        onChange={(e) => handleSettingChange('theme', e.target.value)}
-                      >
-                        <MenuItem value="light">Light</MenuItem>
-                        <MenuItem value="dark">Dark</MenuItem>
-                      </Select>
-                      <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 1, mt: 0.5 }}>
-                        Choose between a light or dark theme for the application.
-                      </Typography>
-                    </FormControl>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settings.showResponseStatus}
+                          onChange={(e) => handleSettingChange('showResponseStatus', e.target.checked)}
+                          name="showResponseStatus"
+                          color="primary"
+                        />
+                      }
+                      label="Show Response Status"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settings.showRequestTime}
+                          onChange={(e) => handleSettingChange('showRequestTime', e.target.checked)}
+                          name="showRequestTime"
+                          color="primary"
+                        />
+                      }
+                      label="Show Request Time"
+                    />
+                     <TextField
+                      label="JSON Indent Spaces"
+                      type="number"
+                      value={settings.jsonIndentSpaces}
+                      onChange={(e) => handleSettingChange('jsonIndentSpaces', Number(e.target.value))}
+                      inputProps={{ min: 0, max: 10, step: 1 }}
+                      margin="normal"
+                      size="small"
+                      sx={{ width: '100%', maxWidth: 200 }}
+                    />
                   </Grid>
                 </Grid>
               )}
 
-              {activeSettingsTab === 3 && (
+              {activeSettingsTab === 2 && ( // History Settings
                 <Grid container spacing={2}>
                   <Grid item xs={12}>
-                    <Typography variant="h6" gutterBottom>Data Management</Typography>
+                    <Typography variant="h6" sx={{ mb: 1 }}>History Management</Typography>
+                    <TextField
+                      fullWidth
+                      label="Max History Items (0 for unlimited)"
+                      type="number"
+                      value={settings.maxHistoryItems}
+                      onChange={(e) => handleSettingChange('maxHistoryItems', Number(e.target.value))}
+                      inputProps={{ min: 0 }}
+                      margin="normal"
+                      size="small"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settings.clearHistoryOnAppLoad}
+                          onChange={(e) => handleSettingChange('clearHistoryOnAppLoad', e.target.checked)}
+                          name="clearHistoryOnAppLoad"
+                          color="primary"
+                        />
+                      }
+                      label="Clear History on Application Load"
+                    />
                   </Grid>
+                </Grid>
+              )}
+
+              {activeSettingsTab === 3 && ( // Environments Settings
+                <Grid container spacing={2}>
                   <Grid item xs={12}>
-                    <Typography variant="subtitle2" gutterBottom>Collections & History</Typography>
-                    <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                    <Typography variant="h6" sx={{ mb: 1 }}>Environments</Typography>
+                    <Button
+                      variant="contained"
+                      startIcon={<PlusIcon />}
+                      onClick={handleAddEnvironment}
+                      size="small"
+                      sx={{ mb: 2 }}
+                    >
+                      Add New Environment
+                    </Button>
+
+                    {settings.environments.map(env => (
+                      <Box key={env.id} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '4px', p: 1.5, mb: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <TextField
+                            label="Environment Name"
+                            value={env.name}
+                            onChange={(e) => handleUpdateEnvironmentName(env.id, e.target.value)}
+                            size="small"
+                            sx={{ flexGrow: 1, mr: 1 }}
+                            disabled={env.name === 'No Environment'}
+                          />
+                          {env.name !== 'No Environment' && (
+                            <Tooltip title="Delete Environment">
+                              <IconButton onClick={() => handleDeleteEnvironment(env.id, env.name)} color="error" size="small">
+                                <TrashIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </Box>
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="subtitle2" sx={{ mb: 1 }}>Variables</Typography>
+                        {env.variables.length === 0 && (
+                          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mb: 1 }}>
+                            No variables yet.
+                          </Typography>
+                        )}
+                        {env.variables.map(variable => (
+                          <Grid container spacing={1} key={variable.id} alignItems="center" sx={{ mb: 0.5 }}>
+                            <Grid item xs={5}>
+                              <TextField fullWidth placeholder="Key" value={variable.key} onChange={(e) => handleUpdateEnvironmentVariable(env.id, variable.id, 'key', e.target.value)} size="small" />
+                            </Grid>
+                            <Grid item xs={6}>
+                              <TextField fullWidth placeholder="Value" value={variable.value} onChange={(e) => handleUpdateEnvironmentVariable(env.id, variable.id, 'value', e.target.value)} size="small" />
+                            </Grid>
+                            <Grid item xs={1}>
+                              <Tooltip title="Remove Variable">
+                                <IconButton onClick={() => handleRemoveEnvironmentVariable(env.id, variable.id)} size="small" color="error" >
+                                  <XIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Grid>
+                          </Grid>
+                        ))}
+                        <Button startIcon={<PlusIcon />} onClick={() => handleAddEnvironmentVariable(env.id)} variant="outlined" size="small" sx={{ mt: 1 }}>
+                          Add Variable
+                        </Button>
+                      </Box>
+                    ))}
+                  </Grid>
+                </Grid>
+              )}
+
+              {activeSettingsTab === 4 && ( // Advanced Settings
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <Typography variant="h6" sx={{ mb: 1 }}>Request Processing</Typography>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settings.autoFormatRequestJson}
+                          onChange={(e) => handleSettingChange('autoFormatRequestJson', e.target.checked)}
+                          name="autoFormatRequestJson"
+                          color="primary"
+                        />
+                      }
+                      label="Auto-format Request JSON"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settings.autoFormatResponseJson}
+                          onChange={(e) => handleSettingChange('autoFormatResponseJson', e.target.checked)}
+                          name="autoFormatResponseJson"
+                          color="primary"
+                        />
+                      }
+                      label="Auto-format Response JSON"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settings.enableRequestBodyValidation}
+                          onChange={(e) => handleSettingChange('enableRequestBodyValidation', e.target.checked)}
+                          name="enableRequestBodyValidation"
+                          color="primary"
+                        />
+                      }
+                      label="Enable Request Body JSON Validation"
+                    />
+                    <TextField
+                      fullWidth
+                      label="Request Timeout (ms)"
+                      type="number"
+                      value={settings.requestTimeout}
+                      onChange={(e) => handleSettingChange('requestTimeout', Number(e.target.value))}
+                      inputProps={{ min: 1000 }}
+                      margin="normal"
+                      size="small"
+                    />
+
+                    <Divider sx={{ my: 3 }} />
+                    <Typography variant="h6" sx={{ mb: 1 }}>CORS Proxy</Typography>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={settings.enableCorsProxy}
+                          onChange={(e) => handleSettingChange('enableCorsProxy', e.target.checked)}
+                          name="enableCorsProxy"
+                          color="primary"
+                        />
+                      }
+                      label="Enable CORS Proxy"
+                    />
+                    {settings.enableCorsProxy && (
+                      <TextField
+                        fullWidth
+                        label="CORS Proxy URL"
+                        value={settings.corsProxyUrl}
+                        onChange={(e) => handleSettingChange('corsProxyUrl', e.target.value)}
+                        margin="normal"
+                        size="small"
+                        placeholder="e.g., https://your-cors-proxy.com/?url="
+                      />
+                    )}
+                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                      If enabled, requests will be sent to this proxy URL, which should then forward them to the target API. This helps bypass browser-enforced CORS restrictions. 🌐
+                    </Typography>
+                  </Grid>
+                </Grid>
+              )}
+
+              {activeSettingsTab === 5 && ( // Import/Export Settings
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <Typography variant="h6" sx={{ mb: 1 }}>Manage Collections & Settings</Typography>
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                       <Button
-                        variant="contained"
-                        startIcon={<UploadIcon />}
+                        variant="outlined"
+                        // startIcon={<DownloadIcon />}
                         onClick={exportData}
                         size="small"
                       >
-                        Export Collections
+                        📤 Export All Data  
                       </Button>
                       <input
                         type="file"
@@ -1974,15 +2388,15 @@ const App = () => {
                       />
                       <Button
                         variant="outlined"
-                        startIcon={<DownloadIcon />}
+                        // startIcon={<UploadIcon />}
                         onClick={() => fileInputRef.current.click()}
                         size="small"
                       >
-                        Import Collections
+                        📥 Import Data  
                       </Button>
                     </Box>
                     <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
-                      Export saves your current collections to a JSON file. Importing will **replace** your existing collections with data from the selected JSON file.
+                      Export saves your current collections and most settings to a JSON file. Importing will prompt for how to handle existing collections.
                     </Typography>
                   </Grid>
                 </Grid>
