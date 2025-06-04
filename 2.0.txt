@@ -1,0 +1,2002 @@
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  Box,
+  Button,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Tabs,
+  Tab,
+  Typographygq
+  IconButton,
+  CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Grid,
+  Switch,
+  FormControlLabel,
+  createTheme,
+  ThemeProvider,
+  CssBaseline,
+  Divider,
+  RadioGroup,
+  Radio,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
+  Tooltip
+} from '@mui/material';
+import {
+  PlayArrow as PlayIcon,
+  Add as PlusIcon,
+  Close as XIcon,
+  Save as SaveIcon,
+  History as HistoryIcon,
+  Folder as FolderIcon,
+  Edit as EditIcon,
+  Delete as TrashIcon,
+  Download as DownloadIcon,
+  Upload as UploadIcon,
+  Settings as SettingsIcon,
+  ContentCopy as CopyIcon,
+  ChevronRight as ExpandIcon,
+  Refresh as ClearIcon, // Added for Clear Response
+  AutoFixHigh as FormatIcon, // Added for Format JSON
+} from '@mui/icons-material';
+
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { darcula } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+import { vs } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+
+
+const App = () => {
+  // --- State for Settings ---
+  const [settings, setSettings] = useState(() => {
+    try {
+      const storedSettings = localStorage.getItem('apiClientSettings');
+      return storedSettings ? {
+        defaultUrl: 'https://official-joke-api.appspot.com/random_joke',
+        defaultMethod: 'GET',
+        autoFormatRequestJson: true,
+        autoFormatResponseJson: true,
+        maxHistoryItems: 50,
+        enableCorsProxy: false,
+        corsProxyUrl: '',
+        requestTimeout: 10000,
+        showRequestTime: true,
+        showResponseStatus: true,
+        enableRequestBodyValidation: true,
+        clearHistoryOnAppLoad: false,
+        defaultHeaders: [],
+        defaultAuthToken: '',
+        defaultBodyType: 'none',
+        responseTextWrap: true,
+        responseBodyFontSize: 14,
+        theme: 'light',
+        defaultAuthType: 'none',
+        defaultBasicAuthUsername: '',
+        fetchTimeout: 10000,
+        defaultBasicAuthPassword: '',
+        highlightSyntaxInResponse: false,
+        jsonIndentSpaces: 2,
+        defaultEnvironment: 'No Environment',
+        environments: [{ id: crypto.randomUUID(), name: 'No Environment', variables: [] }],
+        ...JSON.parse(storedSettings)
+      } : {
+        defaultUrl: 'https://official-joke-api.appspot.com/random_joke',
+        defaultMethod: 'GET',
+        autoFormatRequestJson: true,
+        autoFormatResponseJson: true,
+        maxHistoryItems: 50,
+        enableCorsProxy: false,
+        corsProxyUrl: '',
+        requestTimeout: 10000,
+        showRequestTime: true,
+        showResponseStatus: true,
+        enableRequestBodyValidation: true,
+        clearHistoryOnAppLoad: false,
+        defaultHeaders: [],
+        defaultAuthToken: '',
+        defaultBodyType: 'none',
+        responseTextWrap: true,
+        responseBodyFontSize: 14,
+        theme: 'light',
+        defaultAuthType: 'none',
+        defaultBasicAuthUsername: '',
+        fetchTimeout: 10000,
+        defaultBasicAuthPassword: '',
+        highlightSyntaxInResponse: false,
+        jsonIndentSpaces: 2,
+        defaultEnvironment: 'No Environment',
+        environments: [{ id: crypto.randomUUID(), name: 'No Environment', variables: [] }],
+      };
+    } catch (e) {
+      console.error("Failed to load settings from localStorage, using defaults:", e);
+      return {
+        defaultUrl: 'https://official-joke-api.appspot.com/random_joke',
+        defaultMethod: 'GET',
+        autoFormatRequestJson: true,
+        autoFormatResponseJson: true,
+        maxHistoryItems: 50,
+        enableCorsProxy: false,
+        corsProxyUrl: '',
+        requestTimeout: 10000,
+        showRequestTime: true,
+        showResponseStatus: true,
+        enableRequestBodyValidation: true,
+        clearHistoryOnAppLoad: false,
+        defaultHeaders: [],
+        defaultAuthToken: '',
+        defaultBodyType: 'none',
+        responseTextWrap: true,
+        responseBodyFontSize: 14,
+        theme: 'light',
+        defaultAuthType: 'none',
+        defaultBasicAuthUsername: '',
+        fetchTimeout: 10000,
+        defaultBasicAuthPassword: '',
+        highlightSyntaxInResponse: false,
+        jsonIndentSpaces: 2,
+        defaultEnvironment: 'No Environment',
+        environments: [{ id: crypto.randomUUID(), name: 'No Environment', variables: [] }],
+      };
+    }
+  });
+
+
+  // --- State for Request Parameters ---
+  const [url, setUrl] = useState(settings.defaultUrl);
+  const [method, setMethod] = useState(settings.defaultMethod);
+  const [queryParams, setQueryParams] = useState([{ id: crypto.randomUUID(), key: '', value: '' }]);
+  const [authType, setAuthType] = useState(settings.defaultAuthType);
+  const [authToken, setAuthToken] = useState(settings.defaultAuthToken);
+  const [basicAuthUsername, setBasicAuthUsername] = useState(settings.defaultBasicAuthUsername);
+  const [basicAuthPassword, setBasicAuthPassword] = useState(settings.defaultBasicAuthPassword);
+  const [headers, setHeaders] = useState(settings.defaultHeaders.length > 0 ? settings.defaultHeaders.map(h => ({ ...h, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+  const [cookies, setCookies] = useState([{ id: crypto.randomUUID(), key: '', value: '' }]);
+  const [requestBody, setRequestBody] = useState('');
+  const [bodyType, setBodyType] = useState(settings.defaultBodyType);
+  const [formEncodedBody, setFormEncodedBody] = useState([{ id: crypto.randomUUID(), key: '', value: '' }]);
+  // NEW: State for multipart/form-data
+  const [formDataBody, setFormDataBody] = useState([{ id: crypto.randomUUID(), key: '', value: '', type: 'text', file: null }]);
+
+  const fileInputRefs = useRef({}); // For dynamic file inputs in form-data
+
+  // Removed: const [preRequestScript, setPreRequestScript] = useState('// Your pre-request script here');
+  // Removed: const [responseTests, setResponseTests] = useState('// Your response tests here');
+  const [activeRequestTab, setActiveRequestTab] = useState(0);
+
+  // --- State for Response ---
+  const [responseStatus, setResponseStatus] = useState(null);
+  const [responseStatusText, setResponseStatusText] = useState('');
+  const [responseHeaders, setResponseHeaders] = useState({});
+  const [responseBody, setResponseBody] = useState('');
+  const [responseCookies, setResponseCookies] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [requestTime, setRequestTime] = useState(null);
+  const [activeResponseTab, setActiveResponseTab] = useState(0);
+  const [copyFeedback, setCopyFeedback] = useState('');
+
+  // --- State for Collections & History ---
+  const [collections, setCollections] = useState(() => {
+    try {
+      const storedCollections = localStorage.getItem('apiClientCollections');
+      return storedCollections ? JSON.parse(storedCollections) : [];
+    } catch (e) {
+      console.error("Failed to load collections from localStorage, starting with empty array:", e);
+      return [];
+    }
+  });
+  const [expandedCollection, setExpandedCollection] = useState(null);
+
+  const [history, setHistory] = useState(() => {
+    try {
+      const storedHistory = localStorage.getItem('apiClientHistory');
+      const parsedHistory = storedHistory ? JSON.parse(storedHistory) : [];
+      return settings.clearHistoryOnAppLoad ? [] : parsedHistory;
+    } catch (e) {
+      console.error("Failed to load history from localStorage, starting with empty array:", e);
+      return [];
+    }
+  });
+  const [activeSidebarTab, setActiveSidebarTab] = useState(0);
+  const [selectedEnvironment, setSelectedEnvironment] = useState(settings.defaultEnvironment);
+
+  // --- State for Dialogs ---
+  const [isSaveRequestDialogOpen, setIsSaveRequestDialogOpen] = useState(false);
+  const [newRequestName, setNewRequestName] = useState('');
+  const [selectedCollectionId, setSelectedCollectionId] = useState('');
+  const [isNewCollectionDialogOpen, setIsNewCollectionDialogOpen] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState('');
+  const [isEditCollectionDialogOpen, setIsEditCollectionDialogOpen] = useState(false);
+  const [editCollectionId, setEditCollectionId] = useState(null);
+  const [editCollectionName, setEditCollectionName] = useState('');
+  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState(0);
+
+  const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
+  const [confirmDialogDetails, setConfirmDialogDetails] = useState({
+    title: '',
+    message: '',
+    onConfirm: () => { },
+  });
+
+  // State for Import Conflict Resolution Dialog
+  const [isImportConflictDialogOpen, setIsImportConflictDialogOpen] = useState(false);
+  const [importConflictResolution, setImportConflictResolution] = useState('merge'); // 'merge' or 'overwrite'
+  const [importDataPending, setImportDataPending] = useState(null); // Stores data waiting for conflict resolution
+
+  const fileInputRef = useRef(null);
+
+  // --- MUI Theme Configuration ---
+  const theme = useMemo(() =>
+    createTheme({
+      palette: {
+        mode: settings.theme,
+        primary: {
+          main: '#1976d2',
+        },
+        secondary: {
+          main: '#dc004e',
+        },
+        success: {
+          main: '#4CAF50',
+        },
+        warning: {
+          main: '#FFC107',
+        },
+        error: {
+          main: '#F44336',
+        },
+        info: {
+          main: '#2196F3',
+        },
+        background: {
+          default: settings.theme === 'dark' ? '#121212' : '#f5f5f5',
+          paper: settings.theme === 'dark' ? '#1e1e1e' : '#ffffff',
+        },
+      },
+      typography: {
+        fontFamily: 'Inter, sans-serif',
+      },
+      components: {
+        MuiButton: {
+          styleOverrides: {
+            root: {
+              borderRadius: 4,
+              textTransform: 'none',
+              fontWeight: 500,
+            },
+          },
+        },
+        MuiTextField: {
+          styleOverrides: {
+            root: {
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 4,
+              },
+            },
+          },
+        },
+        MuiSelect: {
+          styleOverrides: {
+            root: {
+              borderRadius: 4,
+            },
+          },
+        },
+        MuiTab: {
+          styleOverrides: {
+            root: {
+              textTransform: 'none',
+              fontWeight: 600,
+              '&.Mui-selected': {
+                fontWeight: 700,
+              },
+            },
+          },
+        },
+        MuiListItem: {
+          styleOverrides: {
+            root: {
+              borderRadius: '4px',
+              '&:hover': {
+                backgroundColor: settings.theme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
+              },
+            },
+          },
+        },
+      },
+    }), [settings.theme]);
+
+  // --- Local Storage Effects ---
+  useEffect(() => {
+    try {
+      localStorage.setItem('apiClientSettings', JSON.stringify(settings));
+    } catch (e) {
+      console.error("Failed to save settings to localStorage:", e);
+    }
+  }, [settings]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('apiClientCollections', JSON.stringify(collections));
+    } catch (e) {
+      console.error("Failed to save collections to localStorage:", e);
+    }
+  }, [collections]);
+
+  useEffect(() => {
+    try {
+      const limitedHistory = history.slice(0, settings.maxHistoryItems === 0 ? history.length : settings.maxHistoryItems);
+      localStorage.setItem('apiClientHistory', JSON.stringify(limitedHistory));
+    } catch (e) {
+      console.error("Failed to save history to localStorage:", e);
+    }
+  }, [history, settings.maxHistoryItems]);
+
+
+  // --- Helper Functions for Key-Value Pairs (Headers, Query Params, Form Encoded, Cookies) ---
+  const addKeyValuePair = useCallback((setter, currentItems, initialValue = { id: crypto.randomUUID(), key: '', value: '' }) => {
+    setter([...currentItems, initialValue]);
+  }, []);
+
+  const updateKeyValuePair = useCallback((setter, currentItems, id, field, value) => {
+    setter(currentItems.map(item =>
+      item.id === id ? { ...item, [field]: value } : item
+    ));
+  }, []);
+
+  const removeKeyValuePair = useCallback((setter, currentItems, id) => {
+    setter(currentItems.filter(item => item.id !== id));
+  }, []);
+
+  // NEW: Helper functions for Form Data
+  const addFormDataItem = useCallback(() => {
+    setFormDataBody(prev => [...prev, { id: crypto.randomUUID(), key: '', value: '', type: 'text', file: null }]);
+  }, []);
+
+  const updateFormDataItem = useCallback((id, field, value) => {
+    setFormDataBody(prev => prev.map(item =>
+      item.id === id ? { ...item, [field]: value } : item
+    ));
+  }, []);
+
+  const handleFormDataFileChange = useCallback((id, event) => {
+    const file = event.target.files[0];
+    setFormDataBody(prev => prev.map(item =>
+      item.id === id ? { ...item, file: file, value: file ? file.name : '' } : item
+    ));
+  }, []);
+
+  const removeFormDataItem = useCallback((id) => {
+    setFormDataBody(prev => prev.filter(item => item.id !== id));
+  }, []);
+
+
+  // --- Request Logic ---
+  const sendRequest = async () => {
+    setLoading(true);
+    setError(null);
+    setResponseStatus(null);
+    setResponseStatusText('');
+    setResponseHeaders({});
+    setResponseBody('');
+    setResponseCookies([]);
+    setRequestTime(null);
+    setCopyFeedback('');
+
+    const startTime = performance.now();
+
+    try {
+      let requestUrl = url;
+      // Apply environment variables to URL
+      const activeEnvironment = settings.environments.find(env => env.name === selectedEnvironment);
+      if (activeEnvironment) {
+        activeEnvironment.variables.forEach(variable => {
+          if (variable.key && variable.value) {
+            requestUrl = requestUrl.replace(new RegExp(`{{${variable.key}}}`, 'g'), variable.value);
+          }
+        });
+      }
+
+      const validQueryParams = queryParams.filter(p => p.key && p.value);
+      if (validQueryParams.length > 0) {
+        const queryString = new URLSearchParams(
+          validQueryParams.map(p => [p.key, p.value])
+        ).toString();
+        requestUrl = `${requestUrl.split('?')[0]}?${queryString}`;
+      }
+
+      // CORS Proxy Logic
+      let finalUrl = requestUrl;
+      if (settings.enableCorsProxy && settings.corsProxyUrl) {
+        const proxyBase = settings.corsProxyUrl.endsWith('/') || settings.corsProxyUrl.includes('?')
+          ? settings.corsProxyUrl
+          : `${settings.corsProxyUrl}/`;
+        finalUrl = `${proxyBase}${encodeURIComponent(requestUrl)}`;
+        console.log("Using CORS proxy. Final URL:", finalUrl);
+      }
+
+      const options = {
+        method: method,
+        headers: {},
+      };
+
+      if (authType === 'bearer' && authToken) {
+        options.headers['Authorization'] = `Bearer ${authToken}`;
+      } else if (authType === 'basic' && basicAuthUsername && basicAuthPassword) {
+        const credentials = btoa(`${basicAuthUsername}:${basicAuthPassword}`);
+        options.headers['Authorization'] = `Basic ${credentials}`;
+      }
+
+      headers.forEach(header => {
+        if (header.key && header.value) {
+          options.headers[header.key] = header.value;
+        }
+      });
+
+      // Add Cookies to Headers
+      const validCookies = cookies.filter(c => c.key && c.value);
+      if (validCookies.length > 0) {
+        const cookieString = validCookies.map(c => `${c.key}=${c.value}`).join('; ');
+        options.headers['Cookie'] = cookieString;
+      }
+
+      if (['POST', 'PUT', 'PATCH'].includes(method)) {
+        if (bodyType === 'raw-json') {
+          try {
+            const parsedBody = JSON.parse(requestBody);
+            options.body = JSON.stringify(parsedBody, null, settings.autoFormatRequestJson ? settings.jsonIndentSpaces : 0);
+            options.headers['Content-Type'] = 'application/json';
+          } catch (e) {
+            if (settings.enableRequestBodyValidation) {
+              setError('Invalid JSON in request body. Please format correctly.');
+              setLoading(false);
+              return;
+            } else {
+              options.body = requestBody;
+              options.headers['Content-Type'] = 'text/plain'; // Fallback to plain text if JSON validation is off
+            }
+          }
+        } else if (bodyType === 'form-urlencoded') {
+          const formData = new URLSearchParams();
+          formEncodedBody.forEach(item => {
+            if (item.key && item.value) {
+              formData.append(item.key, item.value);
+            }
+          });
+          options.body = formData.toString();
+          options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        } else if (bodyType === 'form-data') { // NEW: Handle multipart/form-data
+          const formData = new FormData();
+          formDataBody.forEach(item => {
+            if (item.key) {
+              if (item.type === 'text' && item.value !== '') {
+                formData.append(item.key, item.value);
+              } else if (item.type === 'file' && item.file) {
+                formData.append(item.key, item.file, item.file.name);
+              }
+            }
+          });
+          options.body = formData;
+          // IMPORTANT: Do NOT set Content-Type header manually for FormData.
+          // The browser will automatically set it to multipart/form-data with the correct boundary.
+          delete options.headers['Content-Type']; // Ensure it's not accidentally set
+        }
+      }
+
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), settings.requestTimeout);
+      options.signal = controller.signal;
+
+      const response = await fetch(finalUrl, options);
+      clearTimeout(id);
+
+      const endTime = performance.now();
+      setRequestTime((endTime - startTime).toFixed(2));
+
+      setResponseStatus(response.status);
+      setResponseStatusText(response.statusText);
+
+      const resHeaders = {};
+      response.headers.forEach((value, key) => {
+        resHeaders[key] = value;
+      });
+      setResponseHeaders(resHeaders);
+
+      // Parse Set-Cookie header for response cookies
+      const setCookieHeader = response.headers.get('set-cookie');
+      if (setCookieHeader) {
+        const parsedCookies = setCookieHeader.split(/,\s*(?=[^;]*=)/).map(cookiePart => { // Split by comma not inside attribute
+          const [key, ...valueParts] = cookiePart.trim().split('=');
+          const value = valueParts.join('=').split(';')[0]; // Take value up to first semicolon for attributes
+          return { key: decodeURIComponent(key || ''), value: decodeURIComponent(value || '') };
+        }).filter(c => c.key); // Filter out empty keys
+        setResponseCookies(parsedCookies);
+      } else {
+        setResponseCookies([]);
+      }
+
+      const contentType = response.headers.get('content-type');
+      let responseBodyText = '';
+      if (contentType && contentType.includes('application/json')) {
+        const json = await response.json();
+        responseBodyText = JSON.stringify(json, null, settings.autoFormatResponseJson ? settings.jsonIndentSpaces : 0);
+      } else {
+        responseBodyText = await response.text();
+      }
+      setResponseBody(responseBodyText);
+
+      const newHistoryItem = {
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        // NEW: Save formDataBody to history
+        requestDetails: { url, method, queryParams, authType, authToken, basicAuthUsername, basicAuthPassword, headers, cookies, requestBody, bodyType, formEncodedBody, formDataBody: formDataBody.map(item => ({ ...item, file: null, value: item.file ? item.file.name : item.value })) }, // Removed preRequestScript, responseTests
+        responseDetails: { status: response.status, statusText: response.statusText, headers: resHeaders, body: responseBodyText, cookies: setCookies },
+      };
+      setHistory(prevHistory => [newHistoryItem, ...prevHistory]);
+
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        setError(`Error: Request timed out after ${settings.requestTimeout}ms.`);
+      } else {
+        setError(`Error: ${err.message}`);
+      }
+      setResponseStatus('Error');
+      setResponseStatusText('Request Failed');
+      setResponseBody('');
+      setResponseCookies([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- Request/Response Utilities ---
+  const formatJsonBody = useCallback(() => {
+    try {
+      setRequestBody(JSON.stringify(JSON.parse(requestBody), null, settings.jsonIndentSpaces));
+      setError(null);
+    } catch (e) {
+      setError(`${e}`);
+    }
+  }, [requestBody, settings.jsonIndentSpaces]);
+
+  const clearAllFields = useCallback(() => {
+    setUrl(settings.defaultUrl);
+    setMethod(settings.defaultMethod);
+    setQueryParams([{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setAuthType(settings.defaultAuthType);
+    setAuthToken(settings.defaultAuthToken);
+    setBasicAuthUsername(settings.defaultBasicAuthUsername);
+    setBasicAuthPassword(settings.defaultBasicAuthPassword);
+    setHeaders(settings.defaultHeaders.length > 0 ? settings.defaultHeaders.map(h => ({ ...h, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setCookies([{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setRequestBody('');
+    setBodyType(settings.defaultBodyType);
+    setFormEncodedBody([{ id: crypto.randomUUID(), key: '', value: '' }]);
+    // NEW: Clear formDataBody
+    setFormDataBody([{ id: crypto.randomUUID(), key: '', value: '', type: 'text', file: null }]);
+
+    // Removed: setPreRequestScript('// Your pre-request script here');
+    // Removed: setResponseTests('// Your response tests here');
+    setResponseStatus(null);
+    setResponseStatusText('');
+    setResponseHeaders({});
+    setResponseBody('');
+    setResponseCookies([]);
+    setError(null);
+    setRequestTime(null);
+    setCopyFeedback('');
+  }, [settings]);
+
+  const clearResponseBody = useCallback(() => {
+    setResponseStatus(null);
+    setResponseStatusText('');
+    setResponseHeaders({});
+    setResponseBody('');
+    setResponseCookies([]);
+    setError(null);
+    setRequestTime(null);
+    setCopyFeedback('');
+  }, []);
+
+  const saveResponseBodyAsJson = useCallback(() => {
+    if (!responseBody) {
+      setError('No response body to save.');
+      return;
+    }
+    try {
+      const blob = new Blob([responseBody], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `response_${new Date().toISOString()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError('Failed to save response body.');
+      console.error(e);
+    }
+  }, [responseBody]);
+
+  const copyResponseBody = useCallback(() => {
+    if (!responseBody) {
+      setCopyFeedback('Nothing to copy!');
+      return;
+    }
+    try {
+      navigator.clipboard.writeText(responseBody)
+        .then(() => setCopyFeedback('Copied!'))
+        .catch((err) => {
+          setCopyFeedback('Failed to copy.');
+          console.error('Failed to copy response body:', err);
+        });
+    } catch (err) {
+      setCopyFeedback('Failed to copy.');
+      console.error('Failed to copy response body:', err);
+    }
+    setTimeout(() => setCopyFeedback(''), 2000);
+  }, [responseBody]);
+
+  const copyResponseHeaders = useCallback(() => {
+    if (Object.keys(responseHeaders).length === 0) {
+      setCopyFeedback('No headers to copy!');
+      return;
+    }
+    const headersText = Object.entries(responseHeaders).map(([key, value]) => `${key}: ${value}`).join('\n');
+    try {
+      navigator.clipboard.writeText(headersText)
+        .then(() => setCopyFeedback('Copied Headers!'))
+        .catch((err) => {
+          setCopyFeedback('Failed to copy headers.');
+          console.error('Failed to copy response headers:', err);
+        });
+    } catch (err) {
+      setCopyFeedback('Failed to copy headers.');
+      console.error('Failed to copy response headers:', err);
+    }
+    setTimeout(() => setCopyFeedback(''), 2000);
+  }, [responseHeaders]);
+
+  const copyResponseCookies = useCallback(() => {
+    if (responseCookies.length === 0) {
+      setCopyFeedback('No cookies to copy!');
+      return;
+    }
+    const cookiesText = responseCookies.map(c => `${c.key}=${c.value}`).join('; ');
+    try {
+      navigator.clipboard.writeText(cookiesText)
+        .then(() => setCopyFeedback('Copied Cookies!'))
+        .catch((err) => {
+          setCopyFeedback('Failed to copy cookies.');
+          console.error('Failed to copy response cookies:', err);
+        });
+    } catch (err) {
+      setCopyFeedback('Failed to copy cookies.');
+      console.error('Failed to copy response cookies:', err);
+    }
+    setTimeout(() => setCopyFeedback(''), 2000);
+  }, [responseCookies]);
+
+
+  // --- Collection Management ---
+  const openSaveRequestDialog = useCallback(() => {
+    setNewRequestName('');
+    setSelectedCollectionId(collections.length > 0 ? collections[0].id : '');
+    setIsSaveRequestDialogOpen(true);
+  }, [collections]);
+
+  const handleSaveRequest = useCallback(() => {
+    if (!newRequestName.trim() || !selectedCollectionId) {
+      setError('Please enter a request name and select a collection.');
+      return;
+    }
+
+    const newRequest = {
+      id: crypto.randomUUID(),
+      name: newRequestName.trim(),
+      url,
+      method,
+      queryParams: queryParams.map(p => ({ ...p })),
+      authType,
+      authToken,
+      basicAuthUsername,
+      basicAuthPassword,
+      headers: headers.map(h => ({ ...h })),
+      cookies: cookies.map(c => ({ ...c })),
+      requestBody,
+      bodyType,
+      formEncodedBody: formEncodedBody.map(f => ({ ...f })),
+      // NEW: Save formDataBody (without actual file objects)
+      formDataBody: formDataBody.map(item => ({ ...item, file: null, value: item.file ? item.file.name : item.value })), // Store file name, not the File object
+      // Removed: preRequestScript,
+      // Removed: responseTests,
+    };
+
+    setCollections(prevCollections =>
+      prevCollections.map(col =>
+        col.id === selectedCollectionId
+          ? { ...col, requests: [...col.requests, newRequest] }
+          : col
+      )
+    );
+    setIsSaveRequestDialogOpen(false);
+    setError(null);
+  }, [newRequestName, selectedCollectionId, url, method, queryParams, authType, authToken, basicAuthUsername, basicAuthPassword, headers, cookies, requestBody, bodyType, formEncodedBody, formDataBody]); // Removed preRequestScript, responseTests
+
+  const handleNewCollection = useCallback(() => {
+    if (!newCollectionName.trim()) {
+      setError('Collection name cannot be empty.');
+      return;
+    }
+    setCollections(prevCollections => [
+      ...prevCollections,
+      { id: crypto.randomUUID(), name: newCollectionName.trim(), requests: [] }
+    ]);
+    setNewCollectionName('');
+    setIsNewCollectionDialogOpen(false);
+    setError(null);
+  }, [newCollectionName]);
+
+  const loadRequestFromCollection = useCallback((request) => {
+    setUrl(request.url);
+    setMethod(request.method);
+    setQueryParams(request.queryParams ? request.queryParams.map(p => ({ ...p, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setAuthType(request.authType || 'none');
+    setAuthToken(request.authToken || '');
+    setBasicAuthUsername(request.basicAuthUsername || '');
+    setBasicAuthPassword(request.basicAuthPassword || '');
+    setHeaders(request.headers ? request.headers.map(h => ({ ...h, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setCookies(request.cookies ? request.cookies.map(c => ({ ...c, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setRequestBody(request.requestBody || '');
+    setBodyType(request.bodyType || 'none');
+    setFormEncodedBody(request.formEncodedBody ? request.formEncodedBody.map(f => ({ ...f, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    // NEW: Load formDataBody from collection
+    setFormDataBody(request.formDataBody ? request.formDataBody.map(f => ({ ...f, id: crypto.randomUUID(), file: null })) : [{ id: crypto.randomUUID(), key: '', value: '', type: 'text', file: null }]);
+
+
+    // Removed: setPreRequestScript(request.preRequestScript || '// Your pre-request script here');
+    // Removed: setResponseTests(request.responseTests || '// Your response tests here');
+    setResponseStatus(null);
+    setResponseStatusText('');
+    setResponseHeaders({});
+    setResponseBody('');
+    setResponseCookies([]);
+    setError(null);
+    setRequestTime(null);
+    setCopyFeedback('');
+    setActiveRequestTab(0);
+  }, []);
+
+  const loadRequestFromHistory = useCallback((historyItem) => {
+    const request = historyItem.requestDetails;
+    setUrl(request.url);
+    setMethod(request.method);
+    setQueryParams(request.queryParams ? request.queryParams.map(p => ({ ...p, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setAuthType(request.authType || 'none');
+    setAuthToken(request.authToken || '');
+    setBasicAuthUsername(request.basicAuthUsername || '');
+    setBasicAuthPassword(request.basicAuthPassword || '');
+    setHeaders(request.headers ? request.headers.map(h => ({ ...h, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setCookies(request.cookies ? request.cookies.map(c => ({ ...c, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setRequestBody(request.requestBody || '');
+    setBodyType(request.bodyType || 'none');
+    setFormEncodedBody(request.formEncodedBody ? request.formEncodedBody.map(f => ({ ...f, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    // NEW: Load formDataBody from history
+    setFormDataBody(request.formDataBody ? request.formDataBody.map(f => ({ ...f, id: crypto.randomUUID(), file: null })) : [{ id: crypto.randomUUID(), key: '', value: '', type: 'text', file: null }]);
+
+    // Removed: setPreRequestScript(request.preRequestScript || '// Your pre-request script here');
+    // Removed: setResponseTests(request.responseTests || '// Your response tests here');
+
+    setResponseStatus(historyItem.responseDetails.status);
+    setResponseStatusText(historyItem.responseDetails.statusText || '');
+    setResponseHeaders(historyItem.responseDetails.headers);
+    setResponseBody(historyItem.responseDetails.body);
+    setResponseCookies(historyItem.responseDetails.cookies || []);
+    setError(null);
+    setRequestTime(null);
+    setCopyFeedback('');
+    setActiveResponseTab(0);
+    setActiveRequestTab(0);
+  }, []);
+
+  const handleDeleteRequestFromCollection = useCallback((collectionId, requestId, requestName) => {
+    setConfirmDialogDetails({
+      title: `Delete Request "${requestName}"?`,
+      message: 'Are you sure you want to delete this request from the collection? This action cannot be undone.',
+      onConfirm: () => {
+        setCollections(prevCollections =>
+          prevCollections.map(col =>
+            col.id === collectionId
+              ? { ...col, requests: col.requests.filter(req => req.id !== requestId) }
+              : col
+          )
+        );
+        setIsConfirmDialogOpen(false);
+      },
+    });
+    setIsConfirmDialogOpen(true);
+  }, []);
+
+  const handleDeleteCollection = useCallback((collectionId, collectionName) => {
+    setConfirmDialogDetails({
+      title: `Delete Collection "${collectionName}"?`,
+      message: 'Are you sure you want to delete this collection and all its requests? This action cannot be undone.',
+      onConfirm: () => {
+        setCollections(prevCollections => prevCollections.filter(col => col.id !== collectionId));
+        setIsConfirmDialogOpen(false);
+        setExpandedCollection(null);
+      },
+    });
+    setIsConfirmDialogOpen(true);
+  }, []);
+
+  const openEditCollectionDialog = useCallback((collection) => {
+    setEditCollectionId(collection.id);
+    setEditCollectionName(collection.name);
+    setIsEditCollectionDialogOpen(true);
+  }, []);
+
+  const handleEditCollectionName = useCallback(() => {
+    if (!editCollectionName.trim()) {
+      setError('Collection name cannot be empty.');
+      return;
+    }
+    setCollections(prevCollections =>
+      prevCollections.map(col =>
+        col.id === editCollectionId ? { ...col, name: editCollectionName.trim() } : col
+      )
+    );
+    setIsEditCollectionDialogOpen(false);
+    setError(null);
+  }, [editCollectionName, editCollectionId]);
+
+  const handleClearHistory = useCallback(() => {
+    setConfirmDialogDetails({
+      title: 'Clear All History?',
+      message: `Are you sure you want to clear your entire request history? This action cannot be undone.${history.length > 0 ? ' You have ' + history.length + ' items in your history.' : ''}`,
+      onConfirm: () => {
+        setHistory([]);
+        setIsConfirmDialogOpen(false);
+      },
+    });
+    setIsConfirmDialogOpen(true);
+  }, [history.length]);
+
+
+  // --- Export/Import Functionality (Collections Only) ---
+  const exportData = useCallback(() => {
+    const dataToExport = {
+      collections,
+      // settings: { ...settings, defaultAuthToken: '', defaultBasicAuthPassword: '' } // Exclude sensitive info from export
+    };
+    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Collections_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [collections, settings]);
+
+  const importData = useCallback((event) => {
+    const file = event.target.files[0];
+    if (!file) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importedData = JSON.parse(e.target.result);
+
+        // Validate collections before prompting for conflict resolution
+        const validatedCollections = importedData.collections && Array.isArray(importedData.collections)
+          ? importedData.collections.map(col => ({
+              id: col.id || crypto.randomUUID(),
+              name: col.name || 'Unnamed Collection',
+              requests: Array.isArray(col.requests) ? col.requests.map(req => ({
+                id: req.id || crypto.randomUUID(),
+                name: req.name || 'Unnamed Request',
+                url: req.url || '',
+                method: req.method || 'GET',
+                queryParams: Array.isArray(req.queryParams) ? req.queryParams.map(p => ({ ...p, id: p.id || crypto.randomUUID() })) : [],
+                authType: req.authType || 'none',
+                authToken: req.authToken || '',
+                basicAuthUsername: req.basicAuthUsername || '',
+                basicAuthPassword: req.basicAuthPassword || '',
+                headers: Array.isArray(req.headers) ? req.headers.map(h => ({ ...h, id: h.id || crypto.randomUUID() })) : [],
+                cookies: Array.isArray(req.cookies) ? req.cookies.map(c => ({ ...c, id: c.id || crypto.randomUUID() })) : [],
+                requestBody: req.requestBody || '',
+                bodyType: req.bodyType || 'none',
+                formEncodedBody: Array.isArray(req.formEncodedBody) ? req.formEncodedBody.map(f => ({ ...f, id: f.id || crypto.randomUUID() })) : [],
+                // NEW: Handle formDataBody in import
+                formDataBody: Array.isArray(req.formDataBody) ? req.formDataBody.map(f => ({ ...f, id: f.id || crypto.randomUUID(), file: null })) : [],
+              })) : [],
+            }))
+          : [];
+
+        // Store pending data and open conflict resolution dialog if collections exist
+        if (validatedCollections.length > 0) {
+          setImportDataPending({
+            collections: validatedCollections,
+            settings: importedData.settings,
+          });
+          setIsImportConflictDialogOpen(true);
+        } else {
+          // If no collections to import, just handle settings
+          if (importedData.settings && typeof importedData.settings === 'object') {
+              setSettings(prevSettings => ({
+                  ...prevSettings,
+                  ...importedData.settings,
+                  defaultAuthToken: importedData.settings.defaultAuthToken || prevSettings.defaultAuthToken,
+                  defaultBasicAuthPassword: importedData.settings.defaultBasicAuthPassword || prevSettings.defaultBasicAuthPassword,
+              }));
+              alert('Settings imported successfully! ⚙️');
+          } else {
+              setError('Invalid JSON file or unexpected format. No collections or settings found.');
+          }
+        }
+      } catch (err) {
+        setError('Invalid JSON file or unexpected format. Please ensure it\'s a valid collections export file.', err);
+        console.error("Import error:", err);
+      } finally {
+        event.target.value = null; // Clear file input
+      }
+    };
+    reader.readAsText(file);
+  }, []);
+
+  const handleImportCollections = useCallback(() => {
+    if (!importDataPending) return;
+
+    const { collections: importedCollections, settings: importedSettings } = importDataPending;
+
+    if (importConflictResolution === 'overwrite') {
+      setCollections(importedCollections);
+      alert('Collections overwritten successfully! ✨');
+    } else { // 'merge'
+      const mergedCollections = [...collections];
+      importedCollections.forEach(importedCol => {
+        const existingColIndex = mergedCollections.findIndex(col => col.name === importedCol.name);
+        if (existingColIndex > -1) {
+          // Merge requests within existing collection
+          const existingRequests = new Set(mergedCollections[existingColIndex].requests.map(req => req.name));
+          importedCol.requests.forEach(importedReq => {
+            // Only add if request name doesn't already exist in the collection
+            if (!existingRequests.has(importedReq.name)) {
+              mergedCollections[existingColIndex].requests.push(importedReq);
+            }
+          });
+        } else {
+          // Add new collection
+          mergedCollections.push(importedCol);
+        }
+      });
+      setCollections(mergedCollections);
+      alert('Collections merged successfully! 🤝');
+    }
+
+    if (importedSettings && typeof importedSettings === 'object') {
+        setSettings(prevSettings => ({
+            ...prevSettings,
+            ...importedSettings,
+            defaultAuthToken: importedSettings.defaultAuthToken || prevSettings.defaultAuthToken,
+            defaultBasicAuthPassword: importedSettings.defaultBasicAuthPassword || prevSettings.defaultBasicAuthPassword,
+        }));
+        alert('Settings imported successfully! ⚙️');
+    }
+
+    setIsImportConflictDialogOpen(false);
+    setImportDataPending(null);
+    setError(null);
+  }, [importDataPending, importConflictResolution, collections]);
+
+
+  // --- Settings Handlers ---
+  const handleSettingChange = useCallback((key, value) => {
+    setSettings(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleDefaultHeadersChange = useCallback((id, field, value) => {
+    setSettings(prev => ({
+      ...prev,
+      defaultHeaders: prev.defaultHeaders.map(header =>
+        header.id === id ? { ...header, [field]: value } : header
+      )
+    }));
+  }, []);
+
+  const addDefaultHeader = useCallback(() => {
+    setSettings(prev => ({
+      ...prev,
+      defaultHeaders: [...prev.defaultHeaders, { id: crypto.randomUUID(), key: '', value: '' }]
+    }));
+  }, []);
+
+  const removeDefaultHeader = useCallback((id) => {
+    setSettings(prev => ({
+      ...prev,
+      defaultHeaders: prev.defaultHeaders.filter(header => header.id !== id)
+    }));
+  }, []);
+
+    // Environment Handlers
+    const handleAddEnvironment = useCallback(() => {
+      setSettings(prev => ({
+          ...prev,
+          environments: [...prev.environments, { id: crypto.randomUUID(), name: `New Env ${prev.environments.length}`, variables: [{ id: crypto.randomUUID(), key: '', value: '' }] }]
+      }));
+  }, []);
+
+  const handleUpdateEnvironmentName = useCallback((envId, newName) => {
+      setSettings(prev => ({
+          ...prev,
+          environments: prev.environments.map(env =>
+              env.id === envId ? { ...env, name: newName } : env
+          )
+      }));
+  }, []);
+
+  const handleDeleteEnvironment = useCallback((envId, envName) => {
+      if (envName === 'No Environment') {
+          alert("Cannot delete 'No Environment'.");
+          return;
+      }
+      setConfirmDialogDetails({
+          title: `Delete Environment "${envName}"?`,
+          message: 'Are you sure you want to delete this environment and all its variables? This action cannot be undone.',
+          onConfirm: () => {
+              setSettings(prev => {
+                  const updatedEnvs = prev.environments.filter(env => env.id !== envId);
+                  if (selectedEnvironment === envName) {
+                      setSelectedEnvironment('No Environment');
+                  }
+                  return { ...prev, environments: updatedEnvs };
+              });
+              setIsConfirmDialogOpen(false);
+          },
+      });
+      setIsConfirmDialogOpen(true);
+  }, [selectedEnvironment]);
+
+  const handleAddEnvironmentVariable = useCallback((envId) => {
+      setSettings(prev => ({
+          ...prev,
+          environments: prev.environments.map(env =>
+              env.id === envId ? { ...env, variables: [...env.variables, { id: crypto.randomUUID(), key: '', value: '' }] } : env
+          )
+      }));
+  }, []);
+
+  const handleUpdateEnvironmentVariable = useCallback((envId, varId, field, value) => {
+      setSettings(prev => ({
+          ...prev,
+          environments: prev.environments.map(env =>
+              env.id === envId ? {
+                  ...env,
+                  variables: env.variables.map(variable =>
+                      variable.id === varId ? { ...variable, [field]: value } : variable
+                  )
+              } : env
+          )
+      }));
+  }, []);
+
+  const handleRemoveEnvironmentVariable = useCallback((envId, varId) => {
+      setSettings(prev => ({
+          ...prev,
+          environments: prev.environments.filter(env => env.id === envId ? { ...env, variables: env.variables.filter(variable => variable.id !== varId) } : true ).map(env => env.id === envId ? { ...env, variables: env.variables.filter(variable => variable.id !== varId) } : env ) }));
+  }, []);
+
+  // --- Syntax Highlighting Logic for Response Panel ---
+  const getLanguage = (body) => {
+    try {
+      JSON.parse(body);
+      return 'json';
+    } catch (e) {
+      if (body.trim().startsWith('<') && body.trim().endsWith('>')) {
+        if (body.includes('<html') || body.includes('<body') || body.includes('<div')) {
+          return 'html';
+        }
+        return 'xml';
+      }
+      return 'plaintext';
+    }
+  };
+  const syntaxStyle = settings.theme === 'dark' ? darcula : vs;
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Box sx={{ minHeight: '100vh', width: '100vw', bgcolor: 'background.default', display: 'flex', flexDirection: 'column', alignItems: 'stretch', fontFamily: 'Inter, sans-serif', '& textarea::-webkit-scrollbar, & div[sx*="overflowY:auto"]::-webkit-scrollbar': { width: '8px', height: '8px', }, '& textarea::-webkit-scrollbar-track, & div[sx*="overflowY:auto"]::-webkit-scrollbar-track': { background: theme.palette.mode === 'dark' ? '#333' : '#f1f1f1', borderRadius: '10px', }, '& textarea::-webkit-scrollbar-thumb, & div[sx*="overflowY:auto"]::-webkit-scrollbar-thumb': { background: theme.palette.mode === 'dark' ? '#666' : '#888', borderRadius: '10px', }, '& textarea::-webkit-scrollbar-thumb:hover, & div[sx*="overflowY:auto"]::-webkit-scrollbar-thumb:hover': { background: theme.palette.mode === 'dark' ? '#888' : '#555', }, }} >
+        {/* Main Content Area */}
+        <Box sx={{ width: '100%', height: { xs: 'auto', md: '100vh' }, display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 1, bgcolor: 'background.default', }} >
+          {/* 1. Workspace Panel (Sidebar) */}
+          <Box sx={{ width: { xs: '100%', sm: '100%', md: '100%' }, maxWidth: { md: '300px' }, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 1, bgcolor: 'background.paper', borderRight: { xs: 0, md: '1px solid' }, borderBottom: { xs: '1px solid', md: 0 }, borderColor: 'divider', p: 1.5, height: { xs: 'auto', md: '100%' }, minHeight: { xs: '25vh', sm: '30vh', md: 'auto' }, }} >
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="h5" component="h2" sx={{ color: 'orangered', fontWeight: 'bold' }}> VectorLink </Typography>
+              <Tooltip title="Settings & Import/Export">
+                <IconButton onClick={() => setIsSettingsDialogOpen(true)} color="inherit" size="small">
+                  <SettingsIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+            {/* Environment Selector */}
+            <FormControl fullWidth size="small" sx={{ my: 1 }}>
+              <InputLabel id="environment-select-label">Environment</InputLabel>
+              <Select labelId="environment-select-label" value={selectedEnvironment} label="Environment" onChange={(e) => setSelectedEnvironment(e.target.value)} >
+                {settings.environments.map(env => (
+                  <MenuItem key={env.id} value={env.name}>{env.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            {/* Sidebar Tabs */}
+            <Tabs value={activeSidebarTab} onChange={(event, newValue) => setActiveSidebarTab(newValue)} aria-label="sidebar tabs" variant="fullWidth" sx={{ borderBottom: '1px solid', borderColor: 'divider', minHeight: '50px' }} >
+              <Tab icon={<FolderIcon fontSize="small" />} label="" sx={{ textTransform: 'none', minHeight: '40px' }} />
+              <Tab icon={<HistoryIcon fontSize="small" />} label="" sx={{ textTransform: 'none', minHeight: '40px' }} />
+            </Tabs>
+            {/* Collections Content */}
+            {activeSidebarTab === 0 && (
+              <Box sx={{ flexGrow: 1, overflowY: 'auto', pr: 0.5, py: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Button variant="contained" startIcon={<PlusIcon />} onClick={() => setIsNewCollectionDialogOpen(true)} size="small" sx={{ mb: 1 }} > New Collection </Button>
+                {collections.length === 0 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: 1, textAlign: 'center' }}> No collections yet. 📂 </Typography>
+                )}
+                <List dense disablePadding>
+                  {collections.map(collection => (
+                    <Box key={collection.id} sx={{ mb: 1, border: '1px solid', borderColor: 'divider', borderRadius: '4px' }}>
+                      <ListItem secondaryAction={
+                        <Box>
+                          <Tooltip title="Edit Collection">
+                            <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEditCollectionDialog(collection); }}>
+                              <EditIcon fontSize="inherit" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete Collection">
+                            <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleDeleteCollection(collection.id, collection.name); }}>
+                              <TrashIcon fontSize="inherit" color="error" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title={expandedCollection === collection.id ? "Collapse" : "Expand"}>
+                            <IconButton size="small" onClick={() => setExpandedCollection(expandedCollection === collection.id ? null : collection.id)}>
+                              <ExpandIcon sx={{ transform: expandedCollection === collection.id ? 'rotate(90deg)' : 'none' }} fontSize="inherit" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      } sx={{ py: 0.5, pr: 0.5, pl: 1, bgcolor: 'action.hover', borderBottom: expandedCollection === collection.id ? '1px solid' : 'none', borderColor: 'divider', }} >
+                        <ListItemText primary={<Typography variant="subtitle2" sx={{ fontWeight: 'medium' }}>{collection.name}</Typography>} />
+                      </ListItem>
+                      {expandedCollection === collection.id && (
+                        <List dense disablePadding sx={{ bgcolor: 'background.paper' }}>
+                          {collection.requests.length === 0 ? (
+                            <ListItem>
+                              <ListItemText primary={<Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}> No requests. ✨ </Typography>} />
+                            </ListItem>
+                          ) : (
+                            collection.requests.map(request => (
+                              <ListItem key={request.id} onClick={() => loadRequestFromCollection(request)} secondaryAction={
+                                <Tooltip title="Delete Request">
+                                  <IconButton edge="end" aria-label="delete" onClick={(e) => { e.stopPropagation(); handleDeleteRequestFromCollection(collection.id, request.id, request.name); }} size="small" >
+                                    <XIcon fontSize="inherit" color="error" />
+                                  </IconButton>
+                                </Tooltip>
+                              } sx={{ pr: 1, pl: 1, py: 0.5, cursor: 'pointer', '&:hover': { bgcolor: 'action.selected' }, }} >
+                                <ListItemIcon sx={{ minWidth: '60px' }}>
+                                  <Typography variant="caption" sx={{ fontWeight: 'bold', color: request.method === 'GET' ? theme.palette.success.main : request.method === 'POST' ? theme.palette.primary.main : request.method === 'PUT' ? theme.palette.warning.main : request.method === 'DELETE' ? theme.palette.error.main : theme.palette.secondary.main }}>
+                                    {request.method}
+                                  </Typography>
+                                </ListItemIcon>
+                                <ListItemText primary={
+                                  <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {request.name}
+                                  </Typography>
+                                } />
+                              </ListItem>
+                            ))
+                          )}
+                        </List>
+                      )}
+                    </Box>
+                  ))}
+                </List>
+              </Box>
+            )}
+            {/* History Content */}
+            {activeSidebarTab === 1 && (
+              <Box sx={{ flexGrow: 1, overflowY: 'auto', pr: 0.5, py: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Button variant="outlined" startIcon={<ClearIcon />} onClick={handleClearHistory} size="small" color="error" sx={{ mb: 1 }}> Clear History </Button>
+                {history.length === 0 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: 1, textAlign: 'center' }}> No history yet. ⏳ </Typography>
+                )}
+                <List dense disablePadding>
+                  {[...history].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).map((item) => (
+                    <ListItem key={item.id} onClick={() => loadRequestFromHistory(item)} sx={{ pr: 1, pl: 1, py: 0.5, cursor: 'pointer', '&:hover': { bgcolor: 'action.selected' }, border: '1px solid', borderColor: 'divider', borderRadius: '4px', mb: 0.5 }} >
+                      <ListItemIcon sx={{ minWidth: '60px' }}>
+                        <Typography variant="caption" sx={{ fontWeight: 'bold', color: item.requestDetails.method === 'GET' ? theme.palette.success.main : item.requestDetails.method === 'POST' ? theme.palette.primary.main : item.requestDetails.method === 'PUT' ? theme.palette.warning.main : item.requestDetails.method === 'DELETE' ? theme.palette.error.main : theme.palette.secondary.main }}>
+                          {item.requestDetails.method}
+                        </Typography>
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={
+                          <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.requestDetails.url}
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(item.timestamp).toLocaleString()}
+                            {item.responseDetails.status && (
+                              <Typography component="span" variant="caption" sx={{ ml: 1, color: item.responseDetails.status >= 200 && item.responseDetails.status < 300 ? theme.palette.success.main : theme.palette.error.main }}>
+                                ({item.responseDetails.status})
+                              </Typography>
+                            )}
+                          </Typography>
+                        }
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </Box>
+            )}
+          </Box>
+
+          {/* 2. Request & Response Panels */}
+          <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: 1, p: 1.5, overflow: 'hidden' }}>
+            {/* Request Panel */}
+            <Box sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 2, boxShadow: 3, flexShrink: 0 }}>
+              <Grid container spacing={2} alignItems="center">
+                <Grid item xs={12} sm={3} md={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel id="method-select-label">Method</InputLabel>
+                    <Select labelId="method-select-label" value={method} label="Method" onChange={(e) => setMethod(e.target.value)} >
+                      <MenuItem value="GET">GET</MenuItem>
+                      <MenuItem value="POST">POST</MenuItem>
+                      <MenuItem value="PUT">PUT</MenuItem>
+                      <MenuItem value="DELETE">DELETE</MenuItem>
+                      <MenuItem value="PATCH">PATCH</MenuItem>
+                      <MenuItem value="HEAD">HEAD</MenuItem>
+                      <MenuItem value="OPTIONS">OPTIONS</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={9} md={10}>
+                  <TextField fullWidth label="URL" value={url} onChange={(e) => setUrl(e.target.value)} size="small" />
+                </Grid>
+                <Grid item xs={12}>
+                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                    <Button variant="contained" startIcon={<PlayIcon />} onClick={sendRequest} disabled={loading} size="small" >
+                      {loading ? <CircularProgress size={20} color="inherit" /> : 'Send Request'}
+                    </Button>
+                    <Button variant="outlined" startIcon={<SaveIcon />} onClick={openSaveRequestDialog} size="small" >
+                      Save Request
+                    </Button>
+                    <Button variant="outlined" startIcon={<ClearIcon />} onClick={clearAllFields} size="small" color="error" >
+                      Clear All
+                    </Button>
+                  </Box>
+                </Grid>
+              </Grid>
+
+              <Box sx={{ borderBottom: 1, borderColor: 'divider', mt: 2 }}>
+                <Tabs value={activeRequestTab} onChange={(event, newValue) => setActiveRequestTab(newValue)} aria-label="request tabs" variant="scrollable" scrollButtons="auto" >
+                  <Tab label="Params" />
+                  <Tab label="Auth" />
+                  <Tab label="Headers" />
+                  <Tab label="Body" />
+                  <Tab label="Cookies" />
+                </Tabs>
+              </Box>
+
+              <Box sx={{ pt: 2, height: 'auto', maxHeight: '300px', overflowY: 'auto' }}>
+                {activeRequestTab === 0 && (
+                  <Box>
+                    {queryParams.map((param, index) => (
+                      <Grid container spacing={1} key={param.id} alignItems="center" sx={{ mb: 1 }}>
+                        <Grid item xs={5}>
+                          <TextField fullWidth size="small" label="Key" value={param.key} onChange={(e) => updateKeyValuePair(setQueryParams, queryParams, param.id, 'key', e.target.value)} />
+                        </Grid>
+                        <Grid item xs={5}>
+                          <TextField fullWidth size="small" label="Value" value={param.value} onChange={(e) => updateKeyValuePair(setQueryParams, queryParams, param.id, 'value', e.target.value)} />
+                        </Grid>
+                        <Grid item xs={2}>
+                          <IconButton onClick={() => removeKeyValuePair(setQueryParams, queryParams, param.id)} size="small">
+                            <XIcon fontSize="small" color="error" />
+                          </IconButton>
+                        </Grid>
+                      </Grid>
+                    ))}
+                    <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setQueryParams, queryParams)} size="small" > Add Param </Button>
+                  </Box>
+                )}
+
+                {activeRequestTab === 1 && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel id="auth-type-label">Auth Type</InputLabel>
+                      <Select labelId="auth-type-label" value={authType} label="Auth Type" onChange={(e) => setAuthType(e.target.value)} >
+                        <MenuItem value="none">No Auth</MenuItem>
+                        <MenuItem value="bearer">Bearer Token</MenuItem>
+                        <MenuItem value="basic">Basic Auth</MenuItem>
+                      </Select>
+                    </FormControl>
+                    {authType === 'bearer' && (
+                      <TextField fullWidth size="small" label="Token" value={authToken} onChange={(e) => setAuthToken(e.target.value)} />
+                    )}
+                    {authType === 'basic' && (
+                      <Box>
+                        <TextField fullWidth size="small" label="Username" value={basicAuthUsername} onChange={(e) => setBasicAuthUsername(e.target.value)} sx={{ mb: 1 }} />
+                        <TextField fullWidth size="small" label="Password" type="password" value={basicAuthPassword} onChange={(e) => setBasicAuthPassword(e.target.value)} />
+                      </Box>
+                    )}
+                  </Box>
+                )}
+
+                {activeRequestTab === 2 && (
+                  <Box>
+                    {headers.map((header, index) => (
+                      <Grid container spacing={1} key={header.id} alignItems="center" sx={{ mb: 1 }}>
+                        <Grid item xs={5}>
+                          <TextField fullWidth size="small" label="Key" value={header.key} onChange={(e) => updateKeyValuePair(setHeaders, headers, header.id, 'key', e.target.value)} />
+                        </Grid>
+                        <Grid item xs={5}>
+                          <TextField fullWidth size="small" label="Value" value={header.value} onChange={(e) => updateKeyValuePair(setHeaders, headers, header.id, 'value', e.target.value)} />
+                        </Grid>
+                        <Grid item xs={2}>
+                          <IconButton onClick={() => removeKeyValuePair(setHeaders, headers, header.id)} size="small">
+                            <XIcon fontSize="small" color="error" />
+                          </IconButton>
+                        </Grid>
+                      </Grid>
+                    ))}
+                    <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setHeaders, headers)} size="small" > Add Header </Button>
+                  </Box>
+                )}
+
+                {activeRequestTab === 3 && (
+                  <Box>
+                    <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                      <InputLabel id="body-type-label">Body Type</InputLabel>
+                      <Select labelId="body-type-label" value={bodyType} label="Body Type" onChange={(e) => setBodyType(e.target.value)} >
+                        <MenuItem value="none">None</MenuItem>
+                        <MenuItem value="raw-json">Raw (JSON)</MenuItem>
+                        <MenuItem value="form-urlencoded">x-www-form-urlencoded</MenuItem>
+                        <MenuItem value="form-data">form-data (Files & Text)</MenuItem> {/* NEW BODY TYPE */}
+                      </Select>
+                    </FormControl>
+
+                    {bodyType === 'raw-json' && (
+                      <Box>
+                        <TextField
+                          fullWidth
+                          multiline
+                          minRows={8}
+                          maxRows={15}
+                          label="Request Body (JSON)"
+                          value={requestBody}
+                          onChange={(e) => setRequestBody(e.target.value)}
+                          size="small"
+                          sx={{ mb: 1 }}
+                          placeholder='Enter JSON body here. E.g., {"key": "value"}'
+                        />
+                        <Button startIcon={<FormatIcon />} onClick={formatJsonBody} size="small" variant="outlined"> Format JSON </Button>
+                      </Box>
+                    )}
+
+                    {bodyType === 'form-urlencoded' && (
+                      <Box>
+                        {formEncodedBody.map((item, index) => (
+                          <Grid container spacing={1} key={item.id} alignItems="center" sx={{ mb: 1 }}>
+                            <Grid item xs={5}>
+                              <TextField fullWidth size="small" label="Key" value={item.key} onChange={(e) => updateKeyValuePair(setFormEncodedBody, formEncodedBody, item.id, 'key', e.target.value)} />
+                            </Grid>
+                            <Grid item xs={5}>
+                              <TextField fullWidth size="small" label="Value" value={item.value} onChange={(e) => updateKeyValuePair(setFormEncodedBody, formEncodedBody, item.id, 'value', e.target.value)} />
+                            </Grid>
+                            <Grid item xs={2}>
+                              <IconButton onClick={() => removeKeyValuePair(setFormEncodedBody, formEncodedBody, item.id)} size="small">
+                                <XIcon fontSize="small" color="error" />
+                              </IconButton>
+                            </Grid>
+                          </Grid>
+                        ))}
+                        <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setFormEncodedBody, formEncodedBody)} size="small" > Add Field </Button>
+                      </Box>
+                    )}
+
+                    {/* NEW: Form Data Section */}
+                    {bodyType === 'form-data' && (
+                      <Box>
+                        {formDataBody.map((item, index) => (
+                          <Grid container spacing={1} key={item.id} alignItems="center" sx={{ mb: 1 }}>
+                            <Grid item xs={4}>
+                              <TextField fullWidth size="small" label="Key" value={item.key} onChange={(e) => updateFormDataItem(item.id, 'key', e.target.value)} />
+                            </Grid>
+                            <Grid item xs={4}>
+                              {item.type === 'text' ? (
+                                <TextField fullWidth size="small" label="Value" value={item.value} onChange={(e) => updateFormDataItem(item.id, 'value', e.target.value)} />
+                              ) : (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Button variant="outlined" component="label" size="small" sx={{ flexGrow: 1 }}>
+                                    {item.file ? item.file.name : 'Choose File'}
+                                    <input type="file" hidden onChange={(e) => handleFormDataFileChange(item.id, e)} ref={el => fileInputRefs.current[item.id] = el} />
+                                  </Button>
+                                  {item.file && (
+                                    <IconButton size="small" onClick={() => updateFormDataItem(item.id, 'file', null)} aria-label="clear file">
+                                      <XIcon fontSize="small" />
+                                    </IconButton>
+                                  )}
+                                </Box>
+                              )}
+                            </Grid>
+                            <Grid item xs={2}>
+                              <FormControl fullWidth size="small">
+                                <Select value={item.type} onChange={(e) => updateFormDataItem(item.id, 'type', e.target.value)} >
+                                  <MenuItem value="text">Text</MenuItem>
+                                  <MenuItem value="file">File</MenuItem>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                            <Grid item xs={2}>
+                              <IconButton onClick={() => removeFormDataItem(item.id)} size="small">
+                                <XIcon fontSize="small" color="error" />
+                              </IconButton>
+                            </Grid>
+                          </Grid>
+                        ))}
+                        <Button startIcon={<PlusIcon />} onClick={addFormDataItem} size="small" > Add Field </Button>
+                      </Box>
+                    )}
+                  </Box>
+                )}
+
+                {activeRequestTab === 4 && (
+                  <Box>
+                    {cookies.map((cookie, index) => (
+                      <Grid container spacing={1} key={cookie.id} alignItems="center" sx={{ mb: 1 }}>
+                        <Grid item xs={5}>
+                          <TextField fullWidth size="small" label="Key" value={cookie.key} onChange={(e) => updateKeyValuePair(setCookies, cookies, cookie.id, 'key', e.target.value)} />
+                        </Grid>
+                        <Grid item xs={5}>
+                          <TextField fullWidth size="small" label="Value" value={cookie.value} onChange={(e) => updateKeyValuePair(setCookies, cookies, cookie.id, 'value', e.target.value)} />
+                        </Grid>
+                        <Grid item xs={2}>
+                          <IconButton onClick={() => removeKeyValuePair(setCookies, cookies, cookie.id)} size="small">
+                            <XIcon fontSize="small" color="error" />
+                          </IconButton>
+                        </Grid>
+                      </Grid>
+                    ))}
+                    <Button startIcon={<PlusIcon />} onClick={() => addKeyValuePair(setCookies, cookies)} size="small" > Add Cookie </Button>
+                  </Box>
+                )}
+              </Box>
+            </Box>
+
+            {/* Response Panel */}
+            <Box sx={{ flexGrow: 1, bgcolor: 'background.paper', p: 2, borderRadius: 2, boxShadow: 3, display: 'flex', flexDirection: 'column' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="h6" component="h3">Response</Typography>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  {responseStatus && settings.showResponseStatus && (
+                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: responseStatus >= 200 && responseStatus < 300 ? theme.palette.success.main : theme.palette.error.main }}>
+                      Status: {responseStatus} {responseStatusText}
+                    </Typography>
+                  )}
+                  {requestTime && settings.showRequestTime && (
+                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>
+                      Time: {requestTime} ms
+                    </Typography>
+                  )}
+                  <Button variant="outlined" startIcon={<ClearIcon />} onClick={clearResponseBody} size="small" color="error"> Clear Response </Button>
+                  <Button variant="outlined" startIcon={<DownloadIcon />} onClick={saveResponseBodyAsJson} size="small"> Save Body </Button>
+                </Box>
+              </Box>
+
+              {error && (
+                <Typography variant="body2" color="error" sx={{ mb: 2 }}>
+                  {error}
+                </Typography>
+              )}
+
+              {loading && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100px' }}>
+                  <CircularProgress />
+                </Box>
+              )}
+
+              {!loading && !error && (
+                <>
+                  <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                    <Tabs value={activeResponseTab} onChange={(event, newValue) => setActiveResponseTab(newValue)} aria-label="response tabs" variant="scrollable" scrollButtons="auto" >
+                      <Tab label="Body" />
+                      <Tab label="Headers" />
+                      <Tab label="Cookies" />
+                    </Tabs>
+                  </Box>
+
+                  <Box sx={{ flexGrow: 1, mt: 2, overflowY: 'auto', p: 1, borderRadius: 1, bgcolor: 'background.default', border: '1px solid', borderColor: 'divider', position: 'relative' }}>
+                    {copyFeedback && (
+                      <Typography variant="caption" sx={{ position: 'absolute', top: 5, right: 5, bgcolor: 'rgba(0,0,0,0.7)', color: 'white', px: 1, py: 0.5, borderRadius: 1, zIndex: 1 }}>
+                        {copyFeedback}
+                      </Typography>
+                    )}
+
+                    {activeResponseTab === 0 && (
+                      <>
+                        <Tooltip title="Copy Response Body">
+                          <IconButton
+                            size="small"
+                            onClick={copyResponseBody}
+                            sx={{ position: 'absolute', top: 5, right: 10, zIndex: 1 }}
+                          >
+                            <CopyIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        {settings.highlightSyntaxInResponse ? (
+                          <SyntaxHighlighter
+                            language={getLanguage(responseBody)}
+                            style={syntaxStyle}
+                            customStyle={{
+                              background: 'transparent',
+                              padding: '10px',
+                              borderRadius: '4px',
+                              fontSize: `${settings.responseBodyFontSize}px`,
+                              whiteSpace: settings.responseTextWrap ? 'pre-wrap' : 'pre',
+                              wordBreak: settings.responseTextWrap ? 'break-all' : 'normal',
+                            }}
+                          >
+                            {responseBody}
+                          </SyntaxHighlighter>
+                        ) : (
+                          <TextField
+                            fullWidth
+                            multiline
+                            variant="standard"
+                            value={responseBody}
+                            InputProps={{
+                              readOnly: true,
+                              disableUnderline: true,
+                              style: {
+                                fontFamily: 'monospace',
+                                fontSize: `${settings.responseBodyFontSize}px`,
+                                lineHeight: '1.5',
+                                whiteSpace: settings.responseTextWrap ? 'pre-wrap' : 'pre',
+                                wordBreak: settings.responseTextWrap ? 'break-all' : 'normal',
+                              },
+                            }}
+                            sx={{
+                              '& .MuiInputBase-inputMultiline': {
+                                overflow: 'auto !important',
+                                scrollbarWidth: 'thin',
+                                scrollbarColor: `${theme.palette.mode === 'dark' ? '#666' : '#888'} ${theme.palette.mode === 'dark' ? '#333' : '#f1f1f1'}`,
+                              },
+                              '.MuiInputBase-root': {
+                                height: '100%', // Ensure the TextField takes full height
+                                alignItems: 'flex-start', // Align content to the top
+                              },
+                            }}
+                          />
+                        )}
+                      </>
+                    )}
+
+                    {activeResponseTab === 1 && (
+                      <>
+                        <Tooltip title="Copy Response Headers">
+                          <IconButton
+                            size="small"
+                            onClick={copyResponseHeaders}
+                            sx={{ position: 'absolute', top: 5, right: 10, zIndex: 1 }}
+                          >
+                            <CopyIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <List dense>
+                          {Object.entries(responseHeaders).length === 0 ? (
+                            <ListItem><ListItemText primary="No response headers." sx={{ fontStyle: 'italic', color: 'text.secondary' }} /></ListItem>
+                          ) : (
+                            Object.entries(responseHeaders).map(([key, value]) => (
+                              <ListItem key={key}>
+                                <ListItemText primary={<Typography variant="body2" sx={{ fontWeight: 'bold' }}>{key}:</Typography>} secondary={<Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{value}</Typography>} />
+                              </ListItem>
+                            ))
+                          )}
+                        </List>
+                      </>
+                    )}
+
+                    {activeResponseTab === 2 && (
+                      <>
+                        <Tooltip title="Copy Response Cookies">
+                          <IconButton
+                            size="small"
+                            onClick={copyResponseCookies}
+                            sx={{ position: 'absolute', top: 5, right: 10, zIndex: 1 }}
+                          >
+                            <CopyIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <List dense>
+                          {responseCookies.length === 0 ? (
+                            <ListItem><ListItemText primary="No response cookies." sx={{ fontStyle: 'italic', color: 'text.secondary' }} /></ListItem>
+                          ) : (
+                            responseCookies.map((cookie, index) => (
+                              <ListItem key={index}>
+                                <ListItemText primary={<Typography variant="body2" sx={{ fontWeight: 'bold' }}>{cookie.key}:</Typography>} secondary={<Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{cookie.value}</Typography>} />
+                              </ListItem>
+                            ))
+                          )}
+                        </List>
+                      </>
+                    )}
+                  </Box>
+                </>
+              )}
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Save Request Dialog */}
+        <Dialog open={isSaveRequestDialogOpen} onClose={() => setIsSaveRequestDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Save Request</DialogTitle>
+          <DialogContent>
+            <TextField autoFocus margin="dense" label="Request Name" fullWidth value={newRequestName} onChange={(e) => setNewRequestName(e.target.value)} sx={{ mb: 2 }} />
+            <FormControl fullWidth size="small">
+              <InputLabel id="select-collection-label">Select Collection</InputLabel>
+              <Select labelId="select-collection-label" value={selectedCollectionId} label="Select Collection" onChange={(e) => setSelectedCollectionId(e.target.value)} >
+                {collections.map(collection => (
+                  <MenuItem key={collection.id} value={collection.id}>{collection.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setIsSaveRequestDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveRequest} variant="contained">Save</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* New Collection Dialog */}
+        <Dialog open={isNewCollectionDialogOpen} onClose={() => setIsNewCollectionDialogOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Create New Collection</DialogTitle>
+          <DialogContent>
+            <TextField autoFocus margin="dense" label="Collection Name" fullWidth value={newCollectionName} onChange={(e) => setNewCollectionName(e.target.value)} />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setIsNewCollectionDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleNewCollection} variant="contained">Create</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Edit Collection Dialog */}
+        <Dialog open={isEditCollectionDialogOpen} onClose={() => setIsEditCollectionDialogOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Edit Collection Name</DialogTitle>
+          <DialogContent>
+            <TextField autoFocus margin="dense" label="Collection Name" fullWidth value={editCollectionName} onChange={(e) => setEditCollectionName(e.target.value)} />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setIsEditCollectionDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleEditCollectionName} variant="contained">Save</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Confirmation Dialog */}
+        <Dialog open={isConfirmDialogOpen} onClose={() => setIsConfirmDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>{confirmDialogDetails.title}</DialogTitle>
+          <DialogContent>
+            <Typography>{confirmDialogDetails.message}</Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setIsConfirmDialogOpen(false)}>Cancel</Button>
+            <Button onClick={confirmDialogDetails.onConfirm} variant="contained" color="error">Confirm</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Import Conflict Resolution Dialog */}
+        <Dialog open={isImportConflictDialogOpen} onClose={() => setIsImportConflictDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Import Collections</DialogTitle>
+          <DialogContent>
+            <Typography sx={{ mb: 2 }}>
+              It looks like you're importing collections. How would you like to handle existing collections with the same name?
+            </Typography>
+            <FormControl component="fieldset">
+              <RadioGroup
+                aria-label="import-conflict-resolution"
+                name="import-conflict-resolution"
+                value={importConflictResolution}
+                onChange={(e) => setImportConflictResolution(e.target.value)}
+              >
+                <FormControlLabel value="merge" control={<Radio />} label="Merge: Add new requests and collections. Existing collections with the same name will have new requests appended." />
+                <FormControlLabel value="overwrite" control={<Radio />} label="Overwrite: Replace all existing collections with the imported ones." />
+              </RadioGroup>
+            </FormControl>
+            <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+              Merging is generally safer to avoid data loss.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setIsImportConflictDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleImportCollections} variant="contained">Proceed with Import</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Settings Dialog */}
+        <Dialog open={isSettingsDialogOpen} onClose={() => setIsSettingsDialogOpen(false)} maxWidth="md" fullWidth>
+          <DialogTitle>Settings</DialogTitle>
+          <DialogContent dividers>
+            <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+              <Tabs value={activeSettingsTab} onChange={(event, newValue) => setActiveSettingsTab(newValue)} aria-label="settings tabs" variant="scrollable" scrollButtons="auto">
+                <Tab label="General" />
+                <Tab label="Request" />
+                <Tab label="Response" />
+                <Tab label="Headers" />
+                <Tab label="Environments" />
+                <Tab label="Data" />
+              </Tabs>
+            </Box>
+
+            <Box sx={{ pt: 2, height: 'auto', maxHeight: '60vh', overflowY: 'auto' }}>
+              {activeSettingsTab === 0 && ( // General Settings
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Theme</InputLabel>
+                      <Select value={settings.theme} label="Theme" onChange={(e) => handleSettingChange('theme', e.target.value)}>
+                        <MenuItem value="light">Light</MenuItem>
+                        <MenuItem value="dark">Dark</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControlLabel
+                      control={<Switch checked={settings.enableCorsProxy} onChange={(e) => handleSettingChange('enableCorsProxy', e.target.checked)} />}
+                      label="Enable CORS Proxy"
+                    />
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      Use a proxy to bypass CORS issues for cross-origin requests.
+                    </Typography>
+                  </Grid>
+                  {settings.enableCorsProxy && (
+                    <Grid item xs={12}>
+                      <TextField fullWidth size="small" label="CORS Proxy URL" value={settings.corsProxyUrl} onChange={(e) => handleSettingChange('corsProxyUrl', e.target.value)} helperText="Example: https://cors-anywhere.herokuapp.com/" />
+                    </Grid>
+                  )}
+                </Grid>
+              )}
+
+              {activeSettingsTab === 1 && ( // Request Settings
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <TextField fullWidth size="small" label="Default URL" value={settings.defaultUrl} onChange={(e) => handleSettingChange('defaultUrl', e.target.value)} />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Default Method</InputLabel>
+                      <Select value={settings.defaultMethod} label="Default Method" onChange={(e) => handleSettingChange('defaultMethod', e.target.value)}>
+                        <MenuItem value="GET">GET</MenuItem>
+                        <MenuItem value="POST">POST</MenuItem>
+                        <MenuItem value="PUT">PUT</MenuItem>
+                        <MenuItem value="DELETE">DELETE</MenuItem>
+                        <MenuItem value="PATCH">PATCH</MenuItem>
+                        <MenuItem value="HEAD">HEAD</MenuItem>
+                        <MenuItem value="OPTIONS">OPTIONS</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Default Body Type</InputLabel>
+                      <Select value={settings.defaultBodyType} label="Default Body Type" onChange={(e) => handleSettingChange('defaultBodyType', e.target.value)}>
+                        <MenuItem value="none">None</MenuItem>
+                        <MenuItem value="raw-json">Raw (JSON)</MenuItem>
+                        <MenuItem value="form-urlencoded">x-www-form-urlencoded</MenuItem>
+                        <MenuItem value="form-data">form-data (Files & Text)</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField fullWidth type="number" size="small" label="Request Timeout (ms)" value={settings.requestTimeout} onChange={(e) => handleSettingChange('requestTimeout', Math.max(0, parseInt(e.target.value)) || 0)} />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControlLabel
+                      control={<Switch checked={settings.enableRequestBodyValidation} onChange={(e) => handleSettingChange('enableRequestBodyValidation', e.target.checked)} />}
+                      label="Enable Request Body JSON Validation"
+                    />
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      If enabled, requests with invalid JSON bodies will not be sent.
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControlLabel
+                      control={<Switch checked={settings.autoFormatRequestJson} onChange={(e) => handleSettingChange('autoFormatRequestJson', e.target.checked)} />}
+                      label="Auto-format Request JSON"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField fullWidth type="number" size="small" label="JSON Indent Spaces" value={settings.jsonIndentSpaces} onChange={(e) => handleSettingChange('jsonIndentSpaces', Math.max(0, parseInt(e.target.value)) || 2)} />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Default Auth Type</InputLabel>
+                      <Select value={settings.defaultAuthType} label="Default Auth Type" onChange={(e) => handleSettingChange('defaultAuthType', e.target.value)}>
+                        <MenuItem value="none">No Auth</MenuItem>
+                        <MenuItem value="bearer">Bearer Token</MenuItem>
+                        <MenuItem value="basic">Basic Auth</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  {settings.defaultAuthType === 'bearer' && (
+                    <Grid item xs={12}>
+                      <TextField fullWidth size="small" label="Default Bearer Token" value={settings.defaultAuthToken} onChange={(e) => handleSettingChange('defaultAuthToken', e.target.value)} />
+                    </Grid>
+                  )}
+                  {settings.defaultAuthType === 'basic' && (
+                    <>
+                      <Grid item xs={12}>
+                        <TextField fullWidth size="small" label="Default Basic Auth Username" value={settings.defaultBasicAuthUsername} onChange={(e) => handleSettingChange('defaultBasicAuthUsername', e.target.value)} />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField fullWidth type="password" size="small" label="Default Basic Auth Password" value={settings.defaultBasicAuthPassword} onChange={(e) => handleSettingChange('defaultBasicAuthPassword', e.target.value)} />
+                      </Grid>
+                    </>
+                  )}
+                </Grid>
+              )}
+
+              {activeSettingsTab === 2 && ( // Response Settings
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <FormControlLabel
+                      control={<Switch checked={settings.showRequestTime} onChange={(e) => handleSettingChange('showRequestTime', e.target.checked)} />}
+                      label="Show Request Time"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControlLabel
+                      control={<Switch checked={settings.showResponseStatus} onChange={(e) => handleSettingChange('showResponseStatus', e.target.checked)} />}
+                      label="Show Response Status"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControlLabel
+                      control={<Switch checked={settings.responseTextWrap} onChange={(e) => handleSettingChange('responseTextWrap', e.target.checked)} />}
+                      label="Wrap Response Text"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField fullWidth type="number" size="small" label="Response Body Font Size" value={settings.responseBodyFontSize} onChange={(e) => handleSettingChange('responseBodyFontSize', Math.max(8, parseInt(e.target.value)) || 14)} />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControlLabel
+                      control={<Switch checked={settings.highlightSyntaxInResponse} onChange={(e) => handleSettingChange('highlightSyntaxInResponse', e.target.checked)} />}
+                      label="Highlight Syntax in Response Body"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <FormControlLabel
+                      control={<Switch checked={settings.autoFormatResponseJson} onChange={(e) => handleSettingChange('autoFormatResponseJson', e.target.checked)} />}
+                      label="Auto-format Response JSON"
+                    />
+                  </Grid>
+                </Grid>
+              )}
+
+              {activeSettingsTab === 3 && ( // Default Headers Settings
+                <Box>
+                  <Typography variant="subtitle1" sx={{ mb: 1 }}>Default Headers</Typography>
+                  {settings.defaultHeaders.map((header, index) => (
+                    <Grid container spacing={1} key={header.id} alignItems="center" sx={{ mb: 1 }}>
+                      <Grid item xs={5}>
+                        <TextField fullWidth size="small" label="Key" value={header.key} onChange={(e) => handleDefaultHeadersChange(header.id, 'key', e.target.value)} />
+                      </Grid>
+                      <Grid item xs={5}>
+                        <TextField fullWidth size="small" label="Value" value={header.value} onChange={(e) => handleDefaultHeadersChange(header.id, 'value', e.target.value)} />
+                      </Grid>
+                      <Grid item xs={2}>
+                        <IconButton onClick={() => removeDefaultHeader(header.id)} size="small">
+                          <XIcon fontSize="small" color="error" />
+                        </IconButton>
+                      </Grid>
+                    </Grid>
+                  ))}
+                  <Button startIcon={<PlusIcon />} onClick={addDefaultHeader} size="small" > Add Default Header </Button>
+                </Box>
+              )}
+
+              {activeSettingsTab === 4 && ( // Environments Settings
+                <Box>
+                  <Button variant="contained" startIcon={<PlusIcon />} onClick={handleAddEnvironment} size="small" sx={{ mb: 2 }}> Add New Environment </Button>
+                  {settings.environments.map(env => (
+                    <Box key={env.id} sx={{ mb: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: '4px' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <TextField size="small" label="Environment Name" value={env.name} onChange={(e) => handleUpdateEnvironmentName(env.id, e.target.value)} sx={{ flexGrow: 1, mr: 1 }} />
+                        {env.name !== 'No Environment' && (
+                          <IconButton onClick={() => handleDeleteEnvironment(env.id, env.name)} size="small" color="error">
+                            <TrashIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                      </Box>
+                      <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>Variables:</Typography>
+                      {env.variables.map(variable => (
+                        <Grid container spacing={1} key={variable.id} alignItems="center" sx={{ mb: 1 }}>
+                          <Grid item xs={5}>
+                            <TextField fullWidth size="small" label="Key" value={variable.key} onChange={(e) => handleUpdateEnvironmentVariable(env.id, variable.id, 'key', e.target.value)} />
+                          </Grid>
+                          <Grid item xs={5}>
+                            <TextField fullWidth size="small" label="Value" value={variable.value} onChange={(e) => handleUpdateEnvironmentVariable(env.id, variable.id, 'value', e.target.value)} />
+                          </Grid>
+                          <Grid item xs={2}>
+                            <IconButton onClick={() => handleRemoveEnvironmentVariable(env.id, variable.id)} size="small">
+                              <XIcon fontSize="small" color="error" />
+                            </IconButton>
+                          </Grid>
+                        </Grid>
+                      ))}
+                      <Button startIcon={<PlusIcon />} onClick={() => handleAddEnvironmentVariable(env.id)} size="small"> Add Variable </Button>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+
+              {activeSettingsTab === 5 && ( // Data Import/Export Settings
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <Typography variant="body1" sx={{ fontWeight: 'medium' }}>Manage Your Data</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2 }}>
+                      Export and import your collections and settings to backup or transfer your data.
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                      <Button
+                        variant="outlined"
+                        // startIcon={<DownloadIcon />}
+                        onClick={exportData}
+                        size="small"
+                      >
+                        📤 Export All Data
+                      </Button>
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={importData}
+                        style={{ display: 'none' }}
+                        accept=".json"
+                      />
+                      <Button
+                        variant="outlined"
+                        // startIcon={<UploadIcon />}
+                        onClick={() => fileInputRef.current.click()}
+                        size="small"
+                      >
+                        📥 Import Data
+                      </Button>
+                    </Box>
+                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                      Export saves your current collections and most settings to a JSON file. Importing will prompt for how to handle existing collections.
+                    </Typography>
+                  </Grid>
+                </Grid>
+              )}
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setIsSettingsDialogOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    </ThemeProvider>
+  );
+};
+
+export default App;

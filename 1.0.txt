@@ -86,7 +86,6 @@ const App = () => {
         jsonIndentSpaces: 2,
         defaultEnvironment: 'No Environment',
         environments: [{ id: crypto.randomUUID(), name: 'No Environment', variables: [] }],
-        maxRequestSize: 10, // MB
         ...JSON.parse(storedSettings)
       } : {
         defaultUrl: 'https://official-joke-api.appspot.com/random_joke',
@@ -115,7 +114,6 @@ const App = () => {
         jsonIndentSpaces: 2,
         defaultEnvironment: 'No Environment',
         environments: [{ id: crypto.randomUUID(), name: 'No Environment', variables: [] }],
-        maxRequestSize: 10, // MB
       };
     } catch (e) {
       console.error("Failed to load settings from localStorage, using defaults:", e);
@@ -146,7 +144,6 @@ const App = () => {
         jsonIndentSpaces: 2,
         defaultEnvironment: 'No Environment',
         environments: [{ id: crypto.randomUUID(), name: 'No Environment', variables: [] }],
-        maxRequestSize: 10, // MB
       };
     }
   });
@@ -425,29 +422,21 @@ const App = () => {
       }
 
       if (['POST', 'PUT', 'PATCH'].includes(method)) {
-        if (bodyType === 'form-data') {
-          const formData = new FormData();
-          formEncodedBody.forEach(item => {
-            if (item.key) {
-              if (item.isFile && item.file) {
-                formData.append(item.key, item.file);
-              } else {
-                formData.append(item.key, item.value || '');
-              }
+        if (bodyType === 'raw-json') {
+          try {
+            const parsedBody = JSON.parse(requestBody);
+            options.body = JSON.stringify(parsedBody, null, settings.autoFormatRequestJson ? settings.jsonIndentSpaces : 0);
+            options.headers['Content-Type'] = 'application/json';
+          } catch (e) {
+            if (settings.enableRequestBodyValidation) {
+              setError('Invalid JSON in request body. Please format correctly.');
+              setLoading(false);
+              return;
+            } else {
+              options.body = requestBody;
+              options.headers['Content-Type'] = 'text/plain';
             }
-          });
-          options.body = formData;
-          // Don't set Content-Type header for FormData, browser will set it with boundary
-        } else if (bodyType.startsWith('raw-')) {
-          options.body = requestBody;
-          const contentTypeMap = {
-            'raw-json': 'application/json',
-            'raw-text': 'text/plain',
-            'raw-javascript': 'application/javascript',
-            'raw-html': 'text/html',
-            'raw-xml': 'application/xml'
-          };
-          options.headers['Content-Type'] = contentTypeMap[bodyType] || 'text/plain';
+          }
         } else if (bodyType === 'form-urlencoded') {
           const formData = new URLSearchParams();
           formEncodedBody.forEach(item => {
@@ -1076,10 +1065,6 @@ const App = () => {
 
   const syntaxStyle = settings.theme === 'dark' ? darcula : vs;
 
-  // Add new state for file uploads
-  const [formDataFiles, setFormDataFiles] = useState([]);
-  const [rawBodyType, setRawBodyType] = useState('text');
-
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -1384,9 +1369,6 @@ const App = () => {
                   <MenuItem value="PUT">PUT</MenuItem>
                   <MenuItem value="PATCH">PATCH</MenuItem>
                   <MenuItem value="DELETE">DELETE</MenuItem>
-                  <MenuItem value="HEAD">HEAD</MenuItem>
-                  <MenuItem value="OPTIONS">OPTIONS</MenuItem>
-                  <MenuItem value="TRACE">TRACE</MenuItem>
                 </Select>
               </FormControl>
               <TextField
@@ -1590,145 +1572,34 @@ const App = () => {
                     label="Body Type"
                     onChange={(e) => {
                       setBodyType(e.target.value);
-                      if (e.target.value !== 'form-data') {
-                        setFormDataFiles([]);
-                      }
                     }}
                   >
                     <MenuItem value="none">No Body</MenuItem>
                     <MenuItem value="raw-json">Raw JSON</MenuItem>
-                    <MenuItem value="raw-text">Raw Text</MenuItem>
-                    <MenuItem value="raw-javascript">Raw JavaScript</MenuItem>
-                    <MenuItem value="raw-html">Raw HTML</MenuItem>
-                    <MenuItem value="raw-xml">Raw XML</MenuItem>
                     <MenuItem value="form-urlencoded">x-www-form-urlencoded</MenuItem>
-                    <MenuItem value="form-data">Form Data</MenuItem>
                   </Select>
                 </FormControl>
 
-                {bodyType.startsWith('raw-') && (
+                {bodyType === 'raw-json' && (
                   <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                    <FormControl fullWidth size="small" sx={{ mb: 1 }}>
-                      <InputLabel id="raw-body-type-label">Raw Body Type</InputLabel>
-                      <Select
-                        labelId="raw-body-type-label"
-                        value={rawBodyType}
-                        label="Raw Body Type"
-                        onChange={(e) => setRawBodyType(e.target.value)}
-                      >
-                        <MenuItem value="text">Text</MenuItem>
-                        <MenuItem value="javascript">JavaScript</MenuItem>
-                        <MenuItem value="html">HTML</MenuItem>
-                        <MenuItem value="xml">XML</MenuItem>
-                      </Select>
-                    </FormControl>
                     <TextField
                       fullWidth
                       multiline
                       rows={15}
-                      placeholder={`Enter ${rawBodyType} content`}
+                      placeholder="Enter JSON request body"
                       value={requestBody}
                       onChange={(e) => setRequestBody(e.target.value)}
                       variant="outlined"
-                      sx={{ flexGrow: 1, '& .MuiInputBase-input': { fontFamily: 'monospace' }}}
+                      sx={{ flexGrow: 1,'& .MuiInputBase-input': { fontFamily: 'monospace' }}}
                     />
-                    {bodyType === 'raw-json' && (
-                      <Button
-                        variant="outlined"
-                        onClick={formatJsonBody}
-                        size="small"
-                        startIcon={<FormatIcon />}
-                        sx={{ mt: 1, alignSelf: 'flex-end' }}
-                      >
-                        Format JSON
-                      </Button>
-                    )}
-                  </Box>
-                )}
-
-                {bodyType === 'form-data' && (
-                  <Box sx={{ overflowY: 'auto', flexGrow: 1 }}>
-                    {formEncodedBody.map((param) => (
-                      <Grid container spacing={1} key={param.id} alignItems="center" sx={{ mb: 0.5 }}>
-                        <Grid item xs={5}>
-                          <TextField 
-                            fullWidth 
-                            placeholder="Key" 
-                            value={param.key} 
-                            onChange={(e) => updateKeyValuePair(setFormEncodedBody, formEncodedBody, param.id, 'key', e.target.value)} 
-                            size="small" 
-                          />
-                        </Grid>
-                        <Grid item xs={6}>
-                          {param.isFile ? (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <input
-                                type="file"
-                                onChange={(e) => {
-                                  const file = e.target.files[0];
-                                  if (file) {
-                                    if (file.size > settings.maxRequestSize * 1024 * 1024) {
-                                      setError(`File size exceeds ${settings.maxRequestSize}MB limit`);
-                                      return;
-                                    }
-                                    updateKeyValuePair(setFormEncodedBody, formEncodedBody, param.id, 'value', file.name);
-                                    updateKeyValuePair(setFormEncodedBody, formEncodedBody, param.id, 'file', file);
-                                  }
-                                }}
-                                style={{ display: 'none' }}
-                                id={`file-upload-${param.id}`}
-                              />
-                              <Button
-                                variant="outlined"
-                                size="small"
-                                component="label"
-                                htmlFor={`file-upload-${param.id}`}
-                                sx={{ flexGrow: 1 }}
-                              >
-                                {param.value || 'Choose File'}
-                              </Button>
-                            </Box>
-                          ) : (
-                            <TextField 
-                              fullWidth 
-                              placeholder="Value" 
-                              value={param.value} 
-                              onChange={(e) => updateKeyValuePair(setFormEncodedBody, formEncodedBody, param.id, 'value', e.target.value)} 
-                              size="small" 
-                            />
-                          )}
-                        </Grid>
-                        <Grid item xs={1}>
-                          <Box sx={{ display: 'flex', gap: 0.5 }}>
-                            <Tooltip title={param.isFile ? "Switch to Text" : "Switch to File"}>
-                              <IconButton 
-                                onClick={() => updateKeyValuePair(setFormEncodedBody, formEncodedBody, param.id, 'isFile', !param.isFile)} 
-                                size="small"
-                              >
-                                {param.isFile ? <EditIcon fontSize="small" /> : <UploadIcon fontSize="small" />}
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Remove Field">
-                              <IconButton 
-                                onClick={() => removeKeyValuePair(setFormEncodedBody, formEncodedBody, param.id)} 
-                                size="small" 
-                                color="error"
-                              >
-                                <XIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
-                        </Grid>
-                      </Grid>
-                    ))}
-                    <Button 
-                      startIcon={<PlusIcon />} 
-                      onClick={() => addKeyValuePair(setFormEncodedBody, formEncodedBody)} 
-                      variant="outlined" 
-                      size="small" 
-                      sx={{ mt: 1 }}
-                    > 
-                      Add Field 
+                    <Button
+                      variant="outlined"
+                      onClick={formatJsonBody}
+                      size="small"
+                      startIcon={<FormatIcon />}
+                      sx={{ mt: 1, alignSelf: 'flex-end' }}
+                    >
+                      Format JSON
                     </Button>
                   </Box>
                 )}
