@@ -49,7 +49,7 @@ import {
   AutoFixHigh as FormatIcon, // Added for Format JSON
 } from '@mui/icons-material';
 
-import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter/dist/esm';
 import { darcula } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 import { vs } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 
@@ -164,7 +164,7 @@ const App = () => {
   const [cookies, setCookies] = useState([{ id: crypto.randomUUID(), key: '', value: '' }]);
   const [requestBody, setRequestBody] = useState('');
   const [bodyType, setBodyType] = useState(settings.defaultBodyType);
-  const [formEncodedBody, setFormEncodedBody] = useState([{ id: crypto.randomUUID(), key: '', value: '' }]);
+  const [formEncodedBody, setFormEncodedBody] = useState([{ id: crypto.randomUUID(), key: '', value: '', isFile: false, file: null }]);
   // Removed: const [preRequestScript, setPreRequestScript] = useState('// Your pre-request script here');
   // Removed: const [responseTests, setResponseTests] = useState('// Your response tests here');
   const [activeRequestTab, setActiveRequestTab] = useState(0);
@@ -342,7 +342,7 @@ const App = () => {
 
   // --- Helper Functions for Key-Value Pairs (Headers, Query Params, Form Encoded, Cookies) ---
   const addKeyValuePair = useCallback((setter, currentItems) => {
-    setter([...currentItems, { id: crypto.randomUUID(), key: '', value: '' }]);
+    setter([...currentItems, { id: crypto.randomUUID(), key: '', value: '', isFile: false, file: null }]);
   }, []);
 
   const updateKeyValuePair = useCallback((setter, currentItems, id, field, value) => {
@@ -439,15 +439,28 @@ const App = () => {
           options.body = formData;
           // Don't set Content-Type header for FormData, browser will set it with boundary
         } else if (bodyType.startsWith('raw-')) {
-          options.body = requestBody;
-          const contentTypeMap = {
-            'raw-json': 'application/json',
-            'raw-text': 'text/plain',
-            'raw-javascript': 'application/javascript',
-            'raw-html': 'text/html',
-            'raw-xml': 'application/xml'
-          };
-          options.headers['Content-Type'] = contentTypeMap[bodyType] || 'text/plain';
+          if (bodyType === 'raw-json') {
+            try {
+              const parsedBody = JSON.parse(requestBody);
+              options.body = JSON.stringify(parsedBody, null, settings.autoFormatRequestJson ? settings.jsonIndentSpaces : 0);
+              options.headers['Content-Type'] = 'application/json';
+            } catch (e) {
+              if (settings.enableRequestBodyValidation) {
+                setError('Invalid JSON in request body. Please format correctly.');
+                setLoading(false);
+                return;
+              }
+            }
+          } else {
+            options.body = requestBody;
+            const contentTypeMap = {
+              'raw-text': 'text/plain',
+              'raw-javascript': 'application/javascript',
+              'raw-html': 'text/html',
+              'raw-xml': 'application/xml'
+            };
+            options.headers['Content-Type'] = contentTypeMap[bodyType] || 'text/plain';
+          }
         } else if (bodyType === 'form-urlencoded') {
           const formData = new URLSearchParams();
           formEncodedBody.forEach(item => {
@@ -482,11 +495,11 @@ const App = () => {
       // Parse Set-Cookie header for response cookies
       const setCookieHeader = response.headers.get('set-cookie');
       if (setCookieHeader) {
-        const parsedCookies = setCookieHeader.split(/,\s*(?=[^;]*=)/).map(cookiePart => { // Split by comma not inside attribute
+        const parsedCookies = setCookieHeader.split(/,\s*(?=[^;]*=)/).map(cookiePart => {
           const [key, ...valueParts] = cookiePart.trim().split('=');
-          const value = valueParts.join('=').split(';')[0]; // Take value up to first semicolon for attributes
+          const value = valueParts.join('=').split(';')[0];
           return { key: decodeURIComponent(key || ''), value: decodeURIComponent(value || '') };
-        }).filter(c => c.key); // Filter out empty keys
+        }).filter(c => c.key);
         setResponseCookies(parsedCookies);
       } else {
         setResponseCookies([]);
@@ -547,7 +560,7 @@ const App = () => {
     setCookies([{ id: crypto.randomUUID(), key: '', value: '' }]);
     setRequestBody('');
     setBodyType(settings.defaultBodyType);
-    setFormEncodedBody([{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setFormEncodedBody([{ id: crypto.randomUUID(), key: '', value: '', isFile: false, file: null }]);
     // Removed: setPreRequestScript('// Your pre-request script here');
     // Removed: setResponseTests('// Your response tests here');
     setResponseStatus(null);
@@ -721,7 +734,7 @@ const App = () => {
     setCookies(request.cookies ? request.cookies.map(c => ({ ...c, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
     setRequestBody(request.requestBody || '');
     setBodyType(request.bodyType || 'none');
-    setFormEncodedBody(request.formEncodedBody ? request.formEncodedBody.map(f => ({ ...f, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setFormEncodedBody(request.formEncodedBody ? request.formEncodedBody.map(f => ({ ...f, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '', isFile: false, file: null }]);
     // Removed: setPreRequestScript(request.preRequestScript || '// Your pre-request script here');
     // Removed: setResponseTests(request.responseTests || '// Your response tests here');
     setResponseStatus(null);
@@ -748,7 +761,7 @@ const App = () => {
     setCookies(request.cookies ? request.cookies.map(c => ({ ...c, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
     setRequestBody(request.requestBody || '');
     setBodyType(request.bodyType || 'none');
-    setFormEncodedBody(request.formEncodedBody ? request.formEncodedBody.map(f => ({ ...f, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '' }]);
+    setFormEncodedBody(request.formEncodedBody ? request.formEncodedBody.map(f => ({ ...f, id: crypto.randomUUID() })) : [{ id: crypto.randomUUID(), key: '', value: '', isFile: false, file: null }]);
     // Removed: setPreRequestScript(request.preRequestScript || '// Your pre-request script here');
     // Removed: setResponseTests(request.responseTests || '// Your response tests here');
 
@@ -1064,11 +1077,14 @@ const App = () => {
       JSON.parse(body);
       return 'json';
     } catch (e) {
-      if (body.trim().startsWith('<') && body.trim().endsWith('>')) {
+      if (body.trim().startsWith('<')) {
         if (body.includes('<html') || body.includes('<body') || body.includes('<div')) {
           return 'html';
         }
         return 'xml';
+      }
+      if (body.includes('function') || body.includes('const') || body.includes('let') || body.includes('var')) {
+        return 'javascript';
       }
       return 'plaintext';
     }
@@ -1877,6 +1893,8 @@ const App = () => {
                             wordBreak: 'break-word',
                           },
                         }}
+                        wrapLines={true}
+                        wrapLongLines={true}
                       >
                         {responseBody}
                       </SyntaxHighlighter>
