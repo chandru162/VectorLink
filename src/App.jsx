@@ -164,7 +164,13 @@ const App = () => {
   const [cookies, setCookies] = useState([{ id: crypto.randomUUID(), key: '', value: '' }]);
   const [requestBody, setRequestBody] = useState('');
   const [bodyType, setBodyType] = useState(settings.defaultBodyType);
-  const [formEncodedBody, setFormEncodedBody] = useState([{ id: crypto.randomUUID(), key: '', value: '', isFile: false, file: null }]);
+  const [formEncodedBody, setFormEncodedBody] = useState([{ 
+    id: crypto.randomUUID(), 
+    key: '', 
+    value: '', 
+    isFile: false, 
+    file: null 
+  }]);
   // Removed: const [preRequestScript, setPreRequestScript] = useState('// Your pre-request script here');
   // Removed: const [responseTests, setResponseTests] = useState('// Your response tests here');
   const [activeRequestTab, setActiveRequestTab] = useState(0);
@@ -438,6 +444,16 @@ const App = () => {
           });
           options.body = formData;
           // Don't set Content-Type header for FormData, browser will set it with boundary
+          delete options.headers['Content-Type'];
+        } else if (bodyType === 'form-urlencoded') {
+          const formData = new URLSearchParams();
+          formEncodedBody.forEach(item => {
+            if (item.key && item.value) {
+              formData.append(item.key, item.value);
+            }
+          });
+          options.body = formData.toString();
+          options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
         } else if (bodyType.startsWith('raw-')) {
           if (bodyType === 'raw-json') {
             try {
@@ -461,15 +477,6 @@ const App = () => {
             };
             options.headers['Content-Type'] = contentTypeMap[bodyType] || 'text/plain';
           }
-        } else if (bodyType === 'form-urlencoded') {
-          const formData = new URLSearchParams();
-          formEncodedBody.forEach(item => {
-            if (item.key && item.value) {
-              formData.append(item.key, item.value);
-            }
-          });
-          options.body = formData.toString();
-          options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
         }
       }
 
@@ -560,7 +567,13 @@ const App = () => {
     setCookies([{ id: crypto.randomUUID(), key: '', value: '' }]);
     setRequestBody('');
     setBodyType(settings.defaultBodyType);
-    setFormEncodedBody([{ id: crypto.randomUUID(), key: '', value: '', isFile: false, file: null }]);
+    setFormEncodedBody([{ 
+      id: crypto.randomUUID(), 
+      key: '', 
+      value: '', 
+      isFile: false, 
+      file: null 
+    }]);
     // Removed: setPreRequestScript('// Your pre-request script here');
     // Removed: setResponseTests('// Your response tests here');
     setResponseStatus(null);
@@ -1096,6 +1109,58 @@ const App = () => {
   const [formDataFiles, setFormDataFiles] = useState([]);
   const [rawBodyType, setRawBodyType] = useState('text');
 
+  // Helper function to add a new form-data field
+  const addFormDataField = useCallback(() => {
+    setFormEncodedBody(prev => [...prev, { 
+      id: crypto.randomUUID(), 
+      key: '', 
+      value: '', 
+      isFile: false, 
+      file: null 
+    }]);
+  }, []);
+
+  // Helper function to handle file selection
+  const handleFileSelect = useCallback((id, event) => {
+    const file = event.target.files[0];
+    if (file) {
+      if (file.size > settings.maxRequestSize * 1024 * 1024) {
+        setError(`File size exceeds ${settings.maxRequestSize}MB limit`);
+        return;
+      }
+      setFormEncodedBody(prev => prev.map(item => 
+        item.id === id 
+          ? { ...item, value: file.name, file: file }
+          : item
+      ));
+    }
+  }, [settings.maxRequestSize]);
+
+  // Helper function to toggle between file and text input
+  const toggleInputType = useCallback((id) => {
+    setFormEncodedBody(prev => prev.map(item => {
+      if (item.id === id) {
+        const newIsFile = !item.isFile;
+        return {
+          ...item,
+          isFile: newIsFile,
+          value: newIsFile ? '' : item.value,
+          file: newIsFile ? null : item.file
+        };
+      }
+      return item;
+    }));
+  }, []);
+
+  // Helper function to clear file
+  const clearFile = useCallback((id) => {
+    setFormEncodedBody(prev => prev.map(item =>
+      item.id === id
+        ? { ...item, value: '', file: null }
+        : item
+    ));
+  }, []);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -1624,25 +1689,11 @@ const App = () => {
 
                 {bodyType.startsWith('raw-') && (
                   <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                    <FormControl fullWidth size="small" sx={{ mb: 1 }}>
-                      <InputLabel id="raw-body-type-label">Raw Body Type</InputLabel>
-                      <Select
-                        labelId="raw-body-type-label"
-                        value={rawBodyType}
-                        label="Raw Body Type"
-                        onChange={(e) => setRawBodyType(e.target.value)}
-                      >
-                        <MenuItem value="text">Text</MenuItem>
-                        <MenuItem value="javascript">JavaScript</MenuItem>
-                        <MenuItem value="html">HTML</MenuItem>
-                        <MenuItem value="xml">XML</MenuItem>
-                      </Select>
-                    </FormControl>
                     <TextField
                       fullWidth
                       multiline
                       rows={15}
-                      placeholder={`Enter ${rawBodyType} content`}
+                      placeholder={`Enter ${bodyType.replace('raw-', '')} content`}
                       value={requestBody}
                       onChange={(e) => setRequestBody(e.target.value)}
                       variant="outlined"
@@ -1680,17 +1731,7 @@ const App = () => {
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                               <input
                                 type="file"
-                                onChange={(e) => {
-                                  const file = e.target.files[0];
-                                  if (file) {
-                                    if (file.size > settings.maxRequestSize * 1024 * 1024) {
-                                      setError(`File size exceeds ${settings.maxRequestSize}MB limit`);
-                                      return;
-                                    }
-                                    updateKeyValuePair(setFormEncodedBody, formEncodedBody, param.id, 'value', file.name);
-                                    updateKeyValuePair(setFormEncodedBody, formEncodedBody, param.id, 'file', file);
-                                  }
-                                }}
+                                onChange={(e) => handleFileSelect(param.id, e)}
                                 style={{ display: 'none' }}
                                 id={`file-upload-${param.id}`}
                               />
@@ -1703,6 +1744,14 @@ const App = () => {
                               >
                                 {param.value || 'Choose File'}
                               </Button>
+                              {param.value && (
+                                <IconButton 
+                                  size="small" 
+                                  onClick={() => clearFile(param.id)}
+                                >
+                                  <XIcon fontSize="small" />
+                                </IconButton>
+                              )}
                             </Box>
                           ) : (
                             <TextField 
@@ -1718,7 +1767,7 @@ const App = () => {
                           <Box sx={{ display: 'flex', gap: 0.5 }}>
                             <Tooltip title={param.isFile ? "Switch to Text" : "Switch to File"}>
                               <IconButton 
-                                onClick={() => updateKeyValuePair(setFormEncodedBody, formEncodedBody, param.id, 'isFile', !param.isFile)} 
+                                onClick={() => toggleInputType(param.id)} 
                                 size="small"
                               >
                                 {param.isFile ? <EditIcon fontSize="small" /> : <UploadIcon fontSize="small" />}
@@ -1739,7 +1788,7 @@ const App = () => {
                     ))}
                     <Button 
                       startIcon={<PlusIcon />} 
-                      onClick={() => addKeyValuePair(setFormEncodedBody, formEncodedBody)} 
+                      onClick={addFormDataField} 
                       variant="outlined" 
                       size="small" 
                       sx={{ mt: 1 }}
